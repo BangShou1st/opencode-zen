@@ -21,9 +21,10 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Verify
-        run: ./gradlew test --no-daemon
+        # `bash ./gradlew` avoids the executable bit that a Windows checkout does not carry.
+        run: bash ./gradlew test --no-daemon
       - name: Publish
-        run: ./gradlew publish --no-daemon
+        run: bash ./gradlew publish --no-daemon
         env:
           # github.repository is <OWNER>/<REPO>, which is exactly the GitHub Packages coordinate.
           ZEN_MAVEN_REPO_URL: https://maven.pkg.github.com/${{ github.repository }}
