@@ -67,7 +67,7 @@ class OpenCodeZenProtocolPolicyTest {
     @Test
     void reservedToolNamesCoverTheWholeCliCoreSet() {
         assertThat(OpenCodeZenProtocolPolicy.reservedToolNames())
-                .containsExactly("bash", "edit", "glob", "grep", "read");
+                .containsExactly("shell", "read");
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "read"))).isTrue();
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "shell"))).isTrue();
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "grep"))).isFalse();
