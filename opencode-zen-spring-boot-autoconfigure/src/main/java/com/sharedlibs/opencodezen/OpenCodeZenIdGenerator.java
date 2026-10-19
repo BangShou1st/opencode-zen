@@ -31,6 +31,19 @@ public final class OpenCodeZenIdGenerator {
         return id != null && id.matches("msg_" + PAYLOAD_SHAPE);
     }
 
+    /**
+     * Python V2.4 also validates the three trailing timestamp/counter hex digits
+     * for an inbound x-opencode-session. Do not treat a regex-only match as an
+     * existing authenticated session. New sessions created here already pass.
+     */
+    public static boolean isV24SessionAffinityValid(String sessionId) {
+        if (!isSessionShaped(sessionId)) {
+            return false;
+        }
+        int counterHex = Integer.parseInt(sessionId.substring(13, 16), 16);
+        return 0xFFF - counterHex < 16;
+    }
+
     /** Creates a descending session id; callers should cache it for a conversation. */
     public static String newSessionId() {
         return "ses_" + generate(true);

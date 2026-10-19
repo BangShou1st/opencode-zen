@@ -121,6 +121,23 @@ public final class OpenCodeZenRequestFactory {
                 endpoint, freeModel, apiKey), endpoint, protocol, payload);
     }
 
+    /** For proxy adapters that receive real OpenCode session/project/Anthropic headers. */
+    public HttpRequest newConversationInferenceRequest(
+            URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
+            UUID conversationKey, Map<String, Object> payload,
+            Map<String, String> incomingHeaders) {
+        return postWithEnvelope(newConversationRequest(
+                endpoint, freeModel, apiKey, conversationKey),
+                endpoint, protocol, payload, incomingHeaders);
+    }
+
+    public HttpRequest newEphemeralInferenceRequest(
+            URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
+            Map<String, Object> payload, Map<String, String> incomingHeaders) {
+        return postWithEnvelope(newEphemeralRequest(endpoint, freeModel, apiKey),
+                endpoint, protocol, payload, incomingHeaders);
+    }
+
     /** Convenience method for standard Chat Completions inference. */
     public HttpRequest newConversationChatRequest(
             boolean freeModel, String apiKey, UUID conversationKey, Map<String, Object> payload) {
@@ -133,7 +150,14 @@ public final class OpenCodeZenRequestFactory {
     private static HttpRequest postWithEnvelope(
             HttpRequest.Builder builder, URI endpoint, ZenModelProtocol protocol,
             Map<String, Object> payload) {
+        return postWithEnvelope(builder, endpoint, protocol, payload, Map.of());
+    }
+
+    private static HttpRequest postWithEnvelope(
+            HttpRequest.Builder builder, URI endpoint, ZenModelProtocol protocol,
+            Map<String, Object> payload, Map<String, String> incomingHeaders) {
         Objects.requireNonNull(payload, "payload");
+        applySafeIncomingHeaders(builder, protocol, incomingHeaders);
         String expectedPath = OpenCodeZenProtocolPolicy.inferencePath(protocol);
         if (!endpoint.getPath().endsWith(expectedPath)) {
             throw new IllegalArgumentException(
@@ -152,6 +176,60 @@ public final class OpenCodeZenRequestFactory {
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Payload cannot be serialized as JSON", e);
         }
+    }
+
+    private static void applySafeIncomingHeaders(
+            HttpRequest.Builder builder, ZenModelProtocol protocol,
+            Map<String, String> incoming) {
+        if (incoming == null || incoming.isEmpty()) {
+            return;
+        }
+        String project = header(incoming, "x-opencode-project");
+        if (project != null) {
+            builder.setHeader("x-opencode-project", singleLine(project, "project"));
+        }
+        // V2.4 accepts a supplied session ID only when its counter gate passes;
+        // otherwise it constructs a fresh session.
+        String session = null;
+        for (String header : new String[] {"x-opencode-session", "x-opencode-session-id",
+                "x-session-affinity", "x-session-id", "conversation-id"}) {
+            session = header(incoming, header);
+            if (session != null) {
+                break;
+            }
+        }
+        if (OpenCodeZenIdGenerator.isV24SessionAffinityValid(session)) {
+            builder.setHeader("x-opencode-session", session);
+            builder.setHeader("x-opencode-session-id", session);
+        }
+        if (protocol == ZenModelProtocol.ANTHROPIC) {
+            String version = header(incoming, "anthropic-version");
+            if (version != null) {
+                builder.setHeader("anthropic-version", singleLine(version, "anthropic-version"));
+            }
+            String beta = header(incoming, "anthropic-beta");
+            if (beta != null) {
+                builder.setHeader("anthropic-beta", singleLine(beta, "anthropic-beta"));
+            }
+        }
+    }
+
+    private static String header(Map<String, String> headers, String name) {
+        for (Map.Entry<String, String> item : headers.entrySet()) {
+            if (item.getKey() != null && item.getKey().equalsIgnoreCase(name)
+                    && item.getValue() != null && !item.getValue().isBlank()) {
+                return item.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static String singleLine(String value, String label) {
+        if (value == null || value.isBlank()
+                || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("Invalid " + label + " header");
+        }
+        return value;
     }
 
     public String userAgent() {
