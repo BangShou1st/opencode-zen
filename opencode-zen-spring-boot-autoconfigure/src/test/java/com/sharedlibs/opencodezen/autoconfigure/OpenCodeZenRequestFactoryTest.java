@@ -35,7 +35,7 @@ class OpenCodeZenRequestFactoryTest {
         assertThat(request.headers().firstValue(OpenCodeZenProtocolPolicy.SESSION_ID_HEADER))
                 .isEqualTo(request.headers().firstValue(OpenCodeZenProtocolPolicy.SESSION_HEADER));
         assertThat(request.headers().firstValue(OpenCodeZenProtocolPolicy.REQUEST_HEADER))
-                .hasValueSatisfying(id -> assertThat(OpenCodeZenIdGenerator.isRequestShaped(id)).isTrue());
+                .isEmpty(); // Python V2.4 does not send x-opencode-request
         assertThat(request.headers().firstValue("Accept"))
                 .contains(OpenCodeZenProtocolPolicy.ACCEPT_VALUE);
         assertThat(request.headers().firstValue("Authorization"))
@@ -50,8 +50,7 @@ class OpenCodeZenRequestFactoryTest {
 
         assertThat(second.headers().firstValue(OpenCodeZenProtocolPolicy.SESSION_HEADER))
                 .isEqualTo(first.headers().firstValue(OpenCodeZenProtocolPolicy.SESSION_HEADER));
-        assertThat(second.headers().firstValue(OpenCodeZenProtocolPolicy.REQUEST_HEADER))
-                .isNotEqualTo(first.headers().firstValue(OpenCodeZenProtocolPolicy.REQUEST_HEADER));
+        assertThat(second.headers().firstValue(OpenCodeZenProtocolPolicy.REQUEST_HEADER)).isEmpty();
     }
 
     @Test

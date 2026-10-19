@@ -3,6 +3,12 @@ package com.sharedlibs.opencodezen.autoconfigure;
 import com.sharedlibs.opencodezen.OpenCodeZenCredentialPolicy;
 import com.sharedlibs.opencodezen.OpenCodeZenIdGenerator;
 import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
+import com.sharedlibs.opencodezen.ZenModelProtocol;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import java.time.Duration;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.util.Objects;
@@ -27,6 +33,7 @@ import java.util.concurrent.ConcurrentMap;
 public final class OpenCodeZenRequestFactory {
 
     private static final int MAX_CACHED_CONVERSATIONS = 8192;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final String userAgent;
     private final ConcurrentMap<UUID, String> conversationSessions = new ConcurrentHashMap<>();
@@ -49,8 +56,18 @@ public final class OpenCodeZenRequestFactory {
         requireRequestShape(requestId);
         HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint);
         OpenCodeZenProtocolPolicy.applyIdentityHeaders(builder, sessionId, requestId, userAgent);
-        return builder.header("Authorization",
-                OpenCodeZenProtocolPolicy.authorizationHeader(resolvedCredential));
+        String credential = resolvedCredential == null || resolvedCredential.isBlank()
+                ? OpenCodeZenProtocolPolicy.FREE_TIER_CREDENTIAL : resolvedCredential;
+        if (credential.indexOf('\n') >= 0 || credential.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("Credential must be single-line");
+        }
+        // Python V2.4 uses x-api-key + anthropic-version on /messages,
+        // not Authorization: Bearer.
+        if (endpoint.getPath().endsWith(OpenCodeZenProtocolPolicy.ANTHROPIC_MESSAGES_PATH)) {
+            return builder.header("x-api-key", credential)
+                    .header("anthropic-version", "2023-06-01");
+        }
+        return builder.header("Authorization", "Bearer " + credential);
     }
 
     /**
@@ -83,6 +100,58 @@ public final class OpenCodeZenRequestFactory {
         return newRequestBuilder(endpoint,
                 OpenCodeZenCredentialPolicy.credentialForModel(freeModel, apiKey),
                 OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId());
+    }
+
+    /**
+     * Builds a complete inference POST (not only headers) from the proven Python V2.4 wire
+     * format. The input payload is copied, and tool placeholders are never executed here.
+     * Always handle the returned upstream SSE in the consuming adapter.
+     */
+    public HttpRequest newConversationInferenceRequest(
+            URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
+            UUID conversationKey, Map<String, Object> payload) {
+        return postWithEnvelope(newConversationRequest(
+                endpoint, freeModel, apiKey, conversationKey), endpoint, protocol, payload);
+    }
+
+    public HttpRequest newEphemeralInferenceRequest(
+            URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
+            Map<String, Object> payload) {
+        return postWithEnvelope(newEphemeralRequest(
+                endpoint, freeModel, apiKey), endpoint, protocol, payload);
+    }
+
+    /** Convenience method for standard Chat Completions inference. */
+    public HttpRequest newConversationChatRequest(
+            boolean freeModel, String apiKey, UUID conversationKey, Map<String, Object> payload) {
+        return newConversationInferenceRequest(
+                URI.create(OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL
+                        + OpenCodeZenProtocolPolicy.CHAT_COMPLETIONS_PATH),
+                ZenModelProtocol.CHAT, freeModel, apiKey, conversationKey, payload);
+    }
+
+    private static HttpRequest postWithEnvelope(
+            HttpRequest.Builder builder, URI endpoint, ZenModelProtocol protocol,
+            Map<String, Object> payload) {
+        Objects.requireNonNull(payload, "payload");
+        String expectedPath = OpenCodeZenProtocolPolicy.inferencePath(protocol);
+        if (!endpoint.getPath().endsWith(expectedPath)) {
+            throw new IllegalArgumentException(
+                    "Endpoint path does not match " + protocol + " protocol: " + expectedPath);
+        }
+        Map<String, Object> copy = new LinkedHashMap<>(payload);
+        if (!(copy.get("model") instanceof String model) || model.isBlank()) {
+            throw new IllegalArgumentException("model must be a non-empty string");
+        }
+        OpenCodeZenProtocolPolicy.applyRequiredEnvelope(copy, protocol, true);
+        try {
+            byte[] bytes = JSON.writeValueAsBytes(copy);
+            return builder.header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(180))
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build();
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Payload cannot be serialized as JSON", e);
+        }
     }
 
     public String userAgent() {

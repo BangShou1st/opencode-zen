@@ -35,7 +35,7 @@ public final class OpenCodeZenProtocolPolicy {
     public static final String DEFAULT_BASE_URL = INFERENCE_BASE_URL;
 
     public static final String USER_AGENT =
-            "opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14";
+            "opencode/latest/2.0.29/cli";
 
     public static final String MODELS_PATH = "/models";
     public static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
@@ -59,15 +59,15 @@ public final class OpenCodeZenProtocolPolicy {
             "Not available. Never call this tool.";
 
     /**
-     * The CLI core tool names, in the verified wire order. A request that omits this envelope
+     * The pinned OpenCode 2.x required tool names, in wire order. A request that omits this envelope
      * is rejected by the free tier with {@code 403 FreeTierError}; the set is therefore part of
      * the request contract, not an optional decoration.
      */
     private static final List<String> RESERVED_TOOL_NAMES =
-            List.of("bash", "edit", "glob", "grep", "read");
+            List.of("shell", "read");
 
     private static final List<String> RESERVED_TOOL_ARGUMENTS =
-            List.of("command", "filePath", "pattern", "pattern", "filePath");
+            List.of("command", "path");
 
     private static final List<Map<String, Object>> RESERVED_TOOLS = buildReservedTools();
 
@@ -90,7 +90,6 @@ public final class OpenCodeZenProtocolPolicy {
         builder.header("User-Agent", userAgent)
                 .header("Accept", ACCEPT_VALUE)
                 .header(CLIENT_HEADER, CLIENT_ID)
-                .header(REQUEST_HEADER, requestId)
                 .header(PROJECT_HEADER, GLOBAL_PROJECT)
                 .header(SESSION_HEADER, sessionId)
                 .header(SESSION_ID_HEADER, sessionId);
@@ -107,7 +106,7 @@ public final class OpenCodeZenProtocolPolicy {
         return "Bearer " + credential;
     }
 
-    /** The immutable reserved tool declarations required by the verified free-tier envelope. */
+    /** Pinned OpenCode 2.x shell/read declarations from the included profile. */
     public static List<Map<String, Object>> reservedToolDeclarations() {
         return RESERVED_TOOLS;
     }
@@ -120,11 +119,7 @@ public final class OpenCodeZenProtocolPolicy {
     /** Adds the required CLI-shaped envelope to an outgoing chat payload. */
     public static void applyRequiredChatEnvelope(Map<String, Object> payload, boolean includeUsage) {
         Objects.requireNonNull(payload, "payload");
-        payload.put("stream", true);
-        if (includeUsage) {
-            payload.put("stream_options", Map.of("include_usage", true));
-        }
-        payload.put("tools", RESERVED_TOOLS);
+        applyRequiredEnvelope(payload, ZenModelProtocol.CHAT, includeUsage);
     }
 
     /**
@@ -155,10 +150,11 @@ public final class OpenCodeZenProtocolPolicy {
     }
 
     private static String chatToolName(Object tool) {
-        if (!(tool instanceof Map<?, ?> map) || !(map.get("function") instanceof Map<?, ?> function)) {
+        if (!(tool instanceof Map<?, ?> map)) {
             return null;
         }
-        Object name = function.get("name");
+        Object nested = map.get("function");
+        Object name = nested instanceof Map<?, ?> function ? function.get("name") : map.get("name");
         return name instanceof String text && !text.isBlank() ? text : null;
     }
 
@@ -180,15 +176,79 @@ public final class OpenCodeZenProtocolPolicy {
     }
 
     private static Map<String, Object> functionTool(String name, String propertyName) {
-        return Map.of(
-                "type", "function",
-                "function", Map.of(
-                        "name", name,
-                        "description", RESERVED_TOOL_DESCRIPTION,
-                        "parameters", Map.of(
-                                "type", "object",
-                                "properties", Map.of(propertyName, Map.of("type", "string")),
-                                "additionalProperties", false)));
+        // The propertyName parameter is retained to keep buildReservedTools() stable.
+        return OpenCodeZenClientProfile.toolDeclaration(name, ZenModelProtocol.CHAT);
+    }
+
+    /**
+     * V2.4-compatible protocol-specific envelope. It preserves application tools,
+     * adds pinned shell/read declarations only when missing, and never mixes 1.x
+     * bash/edit/glob/grep wire signatures with the 2.x User-Agent.
+     */
+    public static void applyRequiredEnvelope(
+            Map<String, Object> payload, ZenModelProtocol protocol, boolean includeUsage) {
+        Objects.requireNonNull(payload, "payload");
+        if (protocol != ZenModelProtocol.CHAT && protocol != ZenModelProtocol.RESPONSES
+                && protocol != ZenModelProtocol.ANTHROPIC) {
+            throw new IllegalArgumentException("Unsupported inference protocol: " + protocol);
+        }
+        payload.put("stream", true);
+        if (protocol == ZenModelProtocol.CHAT && includeUsage) {
+            Object current = payload.get("stream_options");
+            if (current != null && !(current instanceof Map<?, ?>)) {
+                throw new IllegalArgumentException("stream_options must be an object");
+            }
+            Map<String, Object> options = new java.util.LinkedHashMap<>();
+            if (current instanceof Map<?, ?> existing) {
+                for (Map.Entry<?, ?> e : existing.entrySet()) {
+                    if (!(e.getKey() instanceof String key)) {
+                        throw new IllegalArgumentException("stream_options keys must be strings");
+                    }
+                    options.put(key, e.getValue());
+                }
+            }
+            options.put("include_usage", true);
+            payload.put("stream_options", options);
+        }
+        Object original = payload.get("tools");
+        if (original != null && !(original instanceof Collection<?>)) {
+            throw new IllegalArgumentException("tools must be an array");
+        }
+        payload.put("tools", appendRequiredTools(
+                original == null ? List.of() : (Collection<?>) original, protocol));
+    }
+
+    public static List<Object> appendRequiredTools(
+            Collection<?> applicationTools, ZenModelProtocol protocol) {
+        List<Object> tools = new ArrayList<>();
+        Set<String> present = new java.util.HashSet<>();
+        if (applicationTools != null) {
+            for (Object tool : applicationTools) {
+                String name = chatToolName(tool);
+                if (name == null) {
+                    throw new IllegalArgumentException("Invalid tool declaration: missing name");
+                }
+                if (!present.add(name)) {
+                    throw new IllegalArgumentException("Duplicate tool declaration: " + name);
+                }
+                tools.add(tool);
+            }
+        }
+        for (String name : RESERVED_TOOL_NAMES) {
+            if (!present.contains(name)) {
+                tools.add(OpenCodeZenClientProfile.toolDeclaration(name, protocol));
+            }
+        }
+        return List.copyOf(tools);
+    }
+
+    public static String inferencePath(ZenModelProtocol protocol) {
+        return switch (protocol) {
+            case CHAT -> CHAT_COMPLETIONS_PATH;
+            case RESPONSES -> RESPONSES_PATH;
+            case ANTHROPIC -> ANTHROPIC_MESSAGES_PATH;
+            default -> throw new IllegalArgumentException("Unsupported inference protocol: " + protocol);
+        };
     }
 
     private static void requireSingleLine(String value, String label) {

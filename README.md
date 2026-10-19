@@ -1,6 +1,6 @@
 # OpenCode Zen 共享库（opencode-zen）
 
-JVM 共享库，用于与 OpenCode Zen 交互：协议常量、凭据规则、模型元数据解析、`ses_`/`msg_`
+JVM 共享库，用于与 OpenCode Zen 交互：协议常量、OpenCode 2.x 客户端请求 Profile、凭据规则、模型元数据解析、`ses_`/`msg_`
 标识符生成、SSE 帧解码，以及请求工厂 + Spring Boot 自动装配。
 
 | 模块 | 作用 |
@@ -9,7 +9,7 @@ JVM 共享库，用于与 OpenCode Zen 交互：协议常量、凭据规则、�
 | `opencode-zen-spring-boot-starter` | 聚合入口（消费方只需要这一个坐标） |
 
 - group：`com.sharedlibs`
-- 当前版本：`1.2.0`
+- 当前版本：`1.3.0`
 
 ---
 
@@ -46,7 +46,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.2.0")
+    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.3.0")
 }
 ```
 
@@ -110,3 +110,45 @@ $env:OPENCODE_ZEN_LOCAL="E:\project\shared-libs\opencode-zen"   # 改完库立�
 ```powershell
 .\gradlew.bat test
 ```
+
+---
+
+## 1.3.0：根据已可用的 Python V2.4 修复 Java 共享库
+
+**注意：本次修改的是 Java 共享库，不是 Python V2.4 代理，也不是 Python V2.5。**
+
+- 统一固定的 OpenCode 2.x 请求身份：`opencode/latest/2.0.29/cli`；
+- 把旧的 `bash/edit/glob/grep/read` 核心工具信封替换为 V2.4 使用的 `shell/read`；工具描述和参数来自模块中的 `zen-client-profile.json`，不要混用 1.x/2.x；
+- 与 Python V2.4 一致，不发送 `x-opencode-request`；继续发送会话头 `x-opencode-session` / `x-opencode-session-id`；
+- 普通 Chat / Responses 使用 Bearer，Anthropic `/messages` 使用 `x-api-key` 和 `anthropic-version`；
+- 新增能够直接生成 HTTP POST 和 JSON 请求体的 Factory 方法，不再让调用方误以为旧的仅 Header Builder 会自动注入工具定义；
+- 新增 `OpenCodeZenFreeModelPolicy.isFreeInLiveListing` 供实时列表验证，避免仅凭本地硬编码 ID 就判断模型可用；
+- 添加针对 Chat / Responses / Anthropic 的**离线**请求格式测试与 PR CI 检查。
+
+### 完整 Chat POST 示例
+
+```java
+@Autowired OpenCodeZenRequestFactory factory;
+
+HttpRequest request = factory.newConversationChatRequest(
+    true, null, UUID.randomUUID(),
+    Map.of(
+        "model", "big-pickle",
+        "messages", List.of(Map.of("role", "user", "content", "你好"))
+    )
+);
+HttpResponse<InputStream> upstream = HttpClient.newHttpClient().send(
+    request, HttpResponse.BodyHandlers.ofInputStream());
+// 上游会返回 SSE；在消费者中解析并过滤所有未实现的工具调用。
+```
+
+对应完整请求也可调用：
+`newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)`；
+`newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)`。
+
+### 兼容性和使用约束
+
+- **旧方法仍保留**：`newConversationRequest` / `newEphemeralRequest` 只返回附带 Header 的 `HttpRequest.Builder`。若消费方仍手写 Body，必须自行调用 `applyRequiredEnvelope`，或迁移到新方法。
+- Java 库仍只是共享协议/请求工具，并不是完整 HTTP 代理；SSE 拼包、工具调用过滤和上游错误透传由消费方处理。Synthetic 工具**只能作为占位声明，不能执行**。
+- 本次用 Python V2.4 作协议参照，**不意味着真实 Zen 网关已经验证成功**。上游 403/429 要尊重、原样处理，不得通过自动轮换网络出口绕过服务端限制。
+- 1.3.0 用于新的 Maven 发布，原有 1.2.0 产物不受影响；下游需要显式升级依赖。
