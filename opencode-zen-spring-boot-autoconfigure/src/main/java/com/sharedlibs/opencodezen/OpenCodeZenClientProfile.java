@@ -32,6 +32,22 @@ public final class OpenCodeZenClientProfile {
         }
     }
 
+    /** All named tools from the captured profile, preserving source order. */
+    public static java.util.Set<String> pinnedToolNames() {
+        java.util.Set<String> names = new java.util.LinkedHashSet<>();
+        PROFILE.path("tools").fieldNames().forEachRemaining(names::add);
+        return java.util.Collections.unmodifiableSet(names);
+    }
+
+    /** Unmodified captured description, without the synthetic tool disclaimer. */
+    public static String capturedDescription(String name) {
+        JsonNode entry = PROFILE.path("tools").path(name);
+        if (!entry.isObject() || !entry.path("description").isTextual()) {
+            throw new IllegalArgumentException("Unknown captured tool: " + name);
+        }
+        return entry.path("description").asText();
+    }
+
     /** Synthetic declarations are protocol placeholders, not executable host tools. */
     public static Map<String, Object> toolDeclaration(String name, ZenModelProtocol protocol) {
         JsonNode node = PROFILE.path("tools").path(name);

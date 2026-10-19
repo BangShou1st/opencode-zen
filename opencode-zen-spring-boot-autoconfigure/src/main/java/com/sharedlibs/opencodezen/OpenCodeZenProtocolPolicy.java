@@ -18,10 +18,8 @@ import java.util.Set;
  * {@code https://opencode.ai/inference/v1}. {@code https://opencode.ai/zen/v1} is a
  * legacy <i>discovery-only</i> endpoint: its {@code /models} listing may still be used as a
  * catalogue fallback, but inference traffic must never be sent there. The request must also
- * carry the full CLI core tool envelope — {@code bash, edit, glob, grep, read} — otherwise the
- * free tier answers {@code 403 FreeTierError}. With that envelope and the shaped
- * {@code ses_}/{@code msg_} identifiers the upstream answers {@code 200} (or {@code 429}
- * when the free quota is exhausted), which is the acceptance contract consumers rely on.
+ * carry the pinned compatibility envelope — {@code shell, read} — for request-format compatibility. Passing offline compatibility checks
+ * does not imply upstream admission. The upstream may independently return 403 or 429.
  */
 public final class OpenCodeZenProtocolPolicy {
 
@@ -129,24 +127,7 @@ public final class OpenCodeZenProtocolPolicy {
      * not carry the chat {@code function.name} shape are passed through untouched.
      */
     public static List<Object> appendReservedTools(Collection<?> applicationTools) {
-        List<Object> tools = new ArrayList<>();
-        Set<String> present = new java.util.HashSet<>();
-        if (applicationTools != null) {
-            for (Object tool : applicationTools) {
-                tools.add(tool);
-                String name = chatToolName(tool);
-                if (name != null) {
-                    present.add(name);
-                }
-            }
-        }
-        for (int index = 0; index < RESERVED_TOOL_NAMES.size(); index++) {
-            if (present.contains(RESERVED_TOOL_NAMES.get(index))) {
-                continue;
-            }
-            tools.add(RESERVED_TOOLS.get(index));
-        }
-        return List.copyOf(tools);
+        return appendRequiredTools(applicationTools, ZenModelProtocol.CHAT);
     }
 
     private static String chatToolName(Object tool) {
@@ -210,36 +191,19 @@ public final class OpenCodeZenProtocolPolicy {
             options.put("include_usage", true);
             payload.put("stream_options", options);
         }
-        Object original = payload.get("tools");
-        if (original != null && !(original instanceof Collection<?>)) {
-            throw new IllegalArgumentException("tools must be an array");
-        }
-        payload.put("tools", appendRequiredTools(
-                original == null ? List.of() : (Collection<?>) original, protocol));
+        payload.put("tools", OpenCodeZenV24ToolNormalizer.normalize(payload, protocol));
+    }
+
+    public static java.util.Set<String> callerDeclaredToolNames(
+            Map<String, Object> payload, ZenModelProtocol protocol) {
+        return OpenCodeZenV24ToolNormalizer.callerDeclaredNames(payload, protocol);
     }
 
     public static List<Object> appendRequiredTools(
             Collection<?> applicationTools, ZenModelProtocol protocol) {
-        List<Object> tools = new ArrayList<>();
-        Set<String> present = new java.util.HashSet<>();
-        if (applicationTools != null) {
-            for (Object tool : applicationTools) {
-                String name = chatToolName(tool);
-                if (name == null) {
-                    throw new IllegalArgumentException("Invalid tool declaration: missing name");
-                }
-                if (!present.add(name)) {
-                    throw new IllegalArgumentException("Duplicate tool declaration: " + name);
-                }
-                tools.add(tool);
-            }
-        }
-        for (String name : RESERVED_TOOL_NAMES) {
-            if (!present.contains(name)) {
-                tools.add(OpenCodeZenClientProfile.toolDeclaration(name, protocol));
-            }
-        }
-        return List.copyOf(tools);
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("tools", applicationTools == null ? List.of() : new ArrayList<>(applicationTools));
+        return OpenCodeZenV24ToolNormalizer.normalize(body, protocol);
     }
 
     public static String inferencePath(ZenModelProtocol protocol) {

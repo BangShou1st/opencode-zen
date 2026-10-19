@@ -9,7 +9,7 @@ JVM 共享库，用于与 OpenCode Zen 交互：协议常量、OpenCode 2.x 客�
 | `opencode-zen-spring-boot-starter` | 聚合入口（消费方只需要这一个坐标） |
 
 - group：`com.sharedlibs`
-- 当前版本：`1.3.0`
+- 当前版本：`1.3.1`
 
 ---
 
@@ -46,7 +46,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.3.0")
+    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.3.1")
 }
 ```
 
@@ -113,7 +113,7 @@ $env:OPENCODE_ZEN_LOCAL="E:\project\shared-libs\opencode-zen"   # 改完库立�
 
 ---
 
-## 1.3.0：根据已可用的 Python V2.4 修复 Java 共享库
+## 1.3.1：根据已可用的 Python V2.4 修复 Java 共享库
 
 **注意：本次修改的是 Java 共享库，不是 Python V2.4 代理，也不是 Python V2.5。**
 
@@ -151,4 +151,25 @@ HttpResponse<InputStream> upstream = HttpClient.newHttpClient().send(
 - **旧方法仍保留**：`newConversationRequest` / `newEphemeralRequest` 只返回附带 Header 的 `HttpRequest.Builder`。若消费方仍手写 Body，必须自行调用 `applyRequiredEnvelope`，或迁移到新方法。
 - Java 库仍只是共享协议/请求工具，并不是完整 HTTP 代理；SSE 拼包、工具调用过滤和上游错误透传由消费方处理。Synthetic 工具**只能作为占位声明，不能执行**。
 - 本次用 Python V2.4 作协议参照，**不意味着真实 Zen 网关已经验证成功**。上游 403/429 要尊重、原样处理，不得通过自动轮换网络出口绕过服务端限制。
-- 1.3.0 用于新的 Maven 发布，原有 1.2.0 产物不受影响；下游需要显式升级依赖。
+- 1.3.1 用于新的 Maven 发布，原有 1.2.0 产物不受影响；下游需要显式升级依赖。
+
+
+## 1.3.1：Python V2.4 工具声明语义修复（未触碰 Python V2.4）
+
+这次实际对比了上传的 Python V2.4 中的 `_names_for_tools()` 与其 63 项离线测试。
+
+- 已有的 shell/read 工具：使用 Profile 原始描述覆盖旧描述，保留调用方 schema；新追加的合成工具则带有不可执行的 placeholder 提示。
+- 未设置 description 的普通工具补全 `Tool function`。
+- Chat 的旧 `functions` 数组参与已声明工具判断，避免重复追加 shell/read；保留旧字段供下游处理。
+- 不拒绝 V2.4 可以接纳的重复工具声明，但客户端负责校验最终工具是否符合提供方要求。
+- `callerDeclaredToolNames(payload, protocol)` 可在提交给上游之前记录真实调用方工具；返回结果不包括追加的 synthetic 工具。**不得执行任何非调用方授权的工具。**
+- 按以上规则增加 Java 离线请求结构回归测试。
+
+### 403 的验证边界
+
+Python V2.4 的 `_gateway_rejection()` 会把含 `Detect Abuse Traffic` 的 403 标记为 `abuse_rejected`，并停止重试；代码未声明此错误可通过修改 Header 绕过。
+此前 Java 真正发出的请求收到了 HTTP 403，不能由此确定真实原因是 Body、Header、IP 或策略中的哪一项。上游拒绝需要原样处理，不得轮换出口继续重试。
+Java `HttpRequest` Factory 并不会配置 `HttpClient` 的代理：`127.0.0.1:7897` 若要用于 Java HTTP 连接，必须在创建 `HttpClient` 时按实际网络需要显式配置。
+本次结果只保证离线行为对齐；不代表真实 Zen 推理已经得到 200。
+
+升级消费者至 `com.sharedlibs:opencode-zen-spring-boot-starter:1.3.1` 前需发布新 Maven 版本。
