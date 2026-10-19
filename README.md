@@ -9,7 +9,7 @@ JVM 共享库，用于与 OpenCode Zen 交互：协议常量、OpenCode 2.x 客�
 | `opencode-zen-spring-boot-starter` | 聚合入口（消费方只需要这一个坐标） |
 
 - group：`com.sharedlibs`
-- 当前版本：`1.3.1`
+- 当前版本：`1.3.2`
 
 ---
 
@@ -46,7 +46,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.3.1")
+    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.3.2")
 }
 ```
 
@@ -113,7 +113,7 @@ $env:OPENCODE_ZEN_LOCAL="E:\project\shared-libs\opencode-zen"   # 改完库立�
 
 ---
 
-## 1.3.1：根据已可用的 Python V2.4 修复 Java 共享库
+## 1.3.2：根据已可用的 Python V2.4 修复 Java 共享库
 
 **注意：本次修改的是 Java 共享库，不是 Python V2.4 代理，也不是 Python V2.5。**
 
@@ -151,10 +151,10 @@ HttpResponse<InputStream> upstream = HttpClient.newHttpClient().send(
 - **旧方法仍保留**：`newConversationRequest` / `newEphemeralRequest` 只返回附带 Header 的 `HttpRequest.Builder`。若消费方仍手写 Body，必须自行调用 `applyRequiredEnvelope`，或迁移到新方法。
 - Java 库仍只是共享协议/请求工具，并不是完整 HTTP 代理；SSE 拼包、工具调用过滤和上游错误透传由消费方处理。Synthetic 工具**只能作为占位声明，不能执行**。
 - 本次用 Python V2.4 作协议参照，**不意味着真实 Zen 网关已经验证成功**。上游 403/429 要尊重、原样处理，不得通过自动轮换网络出口绕过服务端限制。
-- 1.3.1 用于新的 Maven 发布，原有 1.2.0 产物不受影响；下游需要显式升级依赖。
+- 1.3.2 用于新的 Maven 发布，原有 1.2.0 产物不受影响；下游需要显式升级依赖。
 
 
-## 1.3.1：Python V2.4 工具声明语义修复（未触碰 Python V2.4）
+## 1.3.2：Python V2.4 工具声明语义修复（未触碰 Python V2.4）
 
 这次实际对比了上传的 Python V2.4 中的 `_names_for_tools()` 与其 63 项离线测试。
 
@@ -172,7 +172,7 @@ Python V2.4 的 `_gateway_rejection()` 会把含 `Detect Abuse Traffic` 的 403 
 Java `HttpRequest` Factory 并不会配置 `HttpClient` 的代理：`127.0.0.1:7897` 若要用于 Java HTTP 连接，必须在创建 `HttpClient` 时按实际网络需要显式配置。
 本次结果只保证离线行为对齐；不代表真实 Zen 推理已经得到 200。
 
-升级消费者至 `com.sharedlibs:opencode-zen-spring-boot-starter:1.3.1` 前需发布新 Maven 版本。
+升级消费者至 `com.sharedlibs:opencode-zen-spring-boot-starter:1.3.2` 前需发布新 Maven 版本。
 
 
 ### Java 调用端如何明确选择网络连接（不自动切换出口）
@@ -189,3 +189,29 @@ HttpResponse<InputStream> result = http.send(request, HttpResponse.BodyHandlers.
 `OpenCodeZenHttpClients.direct()` 禁用代理；`system()` 使用 JVM 默认 ProxySelector（不能保证自动读取 HTTPS_PROXY 环境变量）。
 如果 Java 项目属于转发网关，可选使用 Factory 的 `newConversationInferenceRequest(..., payload, incomingHeaders)` 或 `newEphemeralInferenceRequest(..., payload, incomingHeaders)` 重载：仅透传项目名、经 Python V2.4 会话 counter 校验通过的 session，以及 Anthropic beta/version；不接受从该 map 覆盖 Authorization / x-api-key。
 请勿以 HTTP 403 是否变为 200 来判断工具描述归一化是否正确；先在离线测试中比较 Header 和 JSON Body。
+
+## 1.3.2 — V2.4 上游结果判定与 SSE 消费端支持
+
+本次仅增加正常、授权请求的结果处理，不改变原有身份 Header、工具指纹、认证逻辑或网络出口，不尝试绕过上游 403 访问限制。
+
+- `OpenCodeZenUpstreamDiagnostics.classify(status, responseBytes)`：将 403 Detect Abuse Traffic 判定为 `ABUSE_REJECTED`，普通 FreeTierError 为 `FREE_TIER_REJECTED`，HTTP 429 为 `RATE_LIMITED`，其他错误独立分类。仅检查最多 64 KiB；不会保存响应或敏感 Header。
+- `OpenCodeZenSseEventReader.read(inputStream, eventConsumer)`：增量解析具名 SSE 事件、换行/CRLF、跨缓冲区 UTF-8、多行 JSON 和 `[DONE]`；上游 `error` / `response.failed` fail-closed；总流量限制 32 MiB。
+- 测试不访问真实 Zen 网关，只检查 Python V2.4 中可确认的响应解析和拒绝分类语义。
+
+### 结果分类与 SSE 用法
+
+```java
+HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+var result = OpenCodeZenUpstreamDiagnostics.classify(response.statusCode(), response.body());
+if (result == OpenCodeZenUpstreamDiagnostics.Outcome.ABUSE_REJECTED) {
+    // 尊重服务端限制：停止调用，并通过服务商支持渠道处理。
+}
+
+// 当上游返回 text/event-stream 时，建议使用 BodyHandlers.ofInputStream() 直接流式处理：
+OpenCodeZenSseEventReader.read(response.body(), event -> {
+    if (event.done()) return;
+    // 对每个 JsonNode 做模型协议和工具授权校验，再发给下游。
+});
+```
+
+注意：第二段示例的 `response` 应由 `HttpResponse<InputStream>` 取得，而非上面的 `byte[]` 响应；具体业务中请选择一种 BodyHandler。不得将 `200 /models` 当作推理授权成功证明。
