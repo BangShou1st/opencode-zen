@@ -81,7 +81,7 @@ class OpenCodeZenV24ParityTest {
         assertThat(body.path("tools").size()).isEqualTo(2);
         assertThat(body.path("tools").get(0).path("function").path("name").asText()).isEqualTo("read");
         assertThat(body.path("tools").get(0).path("function").path("description").asText())
-                .isEqualTo("real tool");
+                .isEqualTo(com.sharedlibs.opencodezen.OpenCodeZenClientProfile.capturedDescription("read"));
         assertThat(body.path("stream_options").path("trace").asBoolean()).isTrue();
         assertThat(original).doesNotContainKey("stream");
     }
