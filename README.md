@@ -207,11 +207,13 @@ if (result == OpenCodeZenUpstreamDiagnostics.Outcome.ABUSE_REJECTED) {
     // 尊重服务端限制：停止调用，并通过服务商支持渠道处理。
 }
 
-// 当上游返回 text/event-stream 时，建议使用 BodyHandlers.ofInputStream() 直接流式处理：
-OpenCodeZenSseEventReader.read(response.body(), event -> {
+// 以下代码使用专门的流式响应（不是上方的 HttpResponse<byte[]>）：
+HttpResponse<InputStream> streamResponse = http.send(
+    request, HttpResponse.BodyHandlers.ofInputStream());
+OpenCodeZenSseEventReader.read(streamResponse.body(), event -> {
     if (event.done()) return;
     // 对每个 JsonNode 做模型协议和工具授权校验，再发给下游。
 });
 ```
 
-注意：第二段示例的 `response` 应由 `HttpResponse<InputStream>` 取得，而非上面的 `byte[]` 响应；具体业务中请选择一种 BodyHandler。不得将 `200 /models` 当作推理授权成功证明。
+注意：上述两种 BodyHandler 为演示分类和流式解析的独立示例。实际运行时先检查 HTTP 状态码，403/429 不要进入 SSE 解析。`200 /models` 也不代表推理授权成功。
