@@ -48,8 +48,8 @@ class OpenCodeZenHeadersTransportParityTest {
                 URI.create(OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL + "/chat/completions"),
                 ZenModelProtocol.CHAT, true, null, Map.of("model", "example-model"),
                 Map.of("x-opencode-session", invalidCounter));
-        assertThat(request.headers().firstValue("x-opencode-session")).isPresent()
-                .doesNotContain(invalidCounter);
+        assertThat(request.headers().firstValue("x-opencode-session"))
+                .hasValueSatisfying(value -> assertThat(value).isNotEqualTo(invalidCounter));
     }
 
     @Test
