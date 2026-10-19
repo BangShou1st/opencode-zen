@@ -34,7 +34,8 @@ public final class OpenCodeZenUpstreamDiagnostics {
             String message = new String(bytes, 0, length, StandardCharsets.UTF_8)
                     .toLowerCase(Locale.ROOT);
             if (message.contains("detect abuse traffic")
-                    || message.contains("abuse traffic")) {
+                    || message.contains("abuse traffic")
+                    || message.contains("abusive traffic")) {
                 return Outcome.ABUSE_REJECTED;
             }
             if (message.contains("freetiererror") || message.contains("free tier")) {

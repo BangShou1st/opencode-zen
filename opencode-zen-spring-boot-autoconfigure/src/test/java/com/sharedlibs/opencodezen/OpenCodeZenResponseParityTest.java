@@ -20,6 +20,28 @@ class OpenCodeZenResponseParityTest {
     }
 
     @Test
+    void detectsAbusiveTrafficVariantBeforeGenericFreeTierError() {
+        // This wording was observed on a rejected network egress, not a JSON schema error.
+        String[] upstreamBodies = {
+                "{\"error\":{\"type\":\"FreeTierError\",\"message\":\"detected abusive traffic\"}}",
+                "{\"error\":{\"type\":\"FreeTierError\",\"message\":\"Forbidden: Detected Abusive Traffic\"}}",
+                "FreeTierError: current network has abusive traffic",
+                "Forbidden, OpenCode Free Model Gateway Detect Abuse Traffic"
+        };
+        for (String upstreamBody : upstreamBodies) {
+            var outcome = OpenCodeZenUpstreamDiagnostics.classify(
+                    403, upstreamBody.getBytes(StandardCharsets.UTF_8));
+            assertThat(outcome)
+                    .as("403 error classification for %s", upstreamBody)
+                    .isEqualTo(OpenCodeZenUpstreamDiagnostics.Outcome.ABUSE_REJECTED);
+            assertThat(OpenCodeZenUpstreamDiagnostics.shouldRetryAutomatically(outcome)).isFalse();
+        }
+        assertThat(OpenCodeZenUpstreamDiagnostics.classify(403,
+                "FreeTierError".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(OpenCodeZenUpstreamDiagnostics.Outcome.FREE_TIER_REJECTED);
+    }
+
+    @Test
     void distinguishesFreeTierAndOtherHttpErrorsWithoutStoringBody() {
         assertThat(OpenCodeZenUpstreamDiagnostics.classify(403,
                 "FreeTierError".getBytes(StandardCharsets.UTF_8)))

@@ -217,3 +217,12 @@ OpenCodeZenSseEventReader.read(streamResponse.body(), event -> {
 ```
 
 注意：上述两种 BodyHandler 为演示分类和流式解析的独立示例。实际运行时先检查 HTTP 状态码，403/429 不要进入 SSE 解析。`200 /models` 也不代表推理授权成功。
+
+
+## 1.3.3: 403 诊断兼容性修复
+
+- `OpenCodeZenUpstreamDiagnostics` 现在也识别实际观测到的 `detected abusive traffic` / `abusive traffic` 文案。与旧版 `Detect Abuse Traffic` 一样归类为 `ABUSE_REJECTED`；它不是可自动重试的错误。
+- 添加按真实服务端措辞构造的分类回归测试，以及公开 API 编译契约测试；没有改变请求 Header、工具声明、代理出口或推理逻辑。
+- 1.3.2 源码中 `OpenCodeZenRequestFactory.newEphemeralInferenceRequest(URI, ZenModelProtocol, boolean, String, Map)` 和 `OpenCodeZenProtocolPolicy.applyRequiredEnvelope(Map, ZenModelProtocol, boolean)` 都已存在。若只在恢复本地改动后报 `cannot find symbol`，请检查本地测试文件的导入、接收对象类型、参数类型，以及测试使用的依赖/模块 classpath。不能仅由该错误断定上游方法被删除。
+- 如需同步此修复到已有本地两文件的相同未提交改动，请先备份、提交或 stash 当前工作区；普通 `git pull` 可能因工作区冲突而中止。不要使用 `git reset --hard` 丢弃用户改动。
+
