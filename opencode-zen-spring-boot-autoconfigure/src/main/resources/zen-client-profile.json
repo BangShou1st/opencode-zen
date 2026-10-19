@@ -1,0 +1,64 @@
+{
+  "source": "https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/main/fingerprint.json",
+  "snapshot_date": "2026-10-17",
+  "generation": "2.x",
+  "agent": {
+    "channel": "latest",
+    "opencode": "2.0.29",
+    "client": "cli"
+  },
+  "required": [
+    "shell",
+    "read"
+  ],
+  "tools": {
+    "shell": {
+      "name": "shell",
+      "description": "Execute a shell command and return its output. Commands run on Windows using PowerShell (5.1). Quote file paths containing spaces or special characters. Prefer dedicated tools over shell commands when possible. When output is large, the full result is saved to a file and a truncated preview is returned. Rely on automatic truncation unless filtering the output is more useful. Commands accept an optional timeout, background commands have no timeout by default. Background commands return immediately, and you will be notified when they complete.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command string to execute"
+          },
+          "workdir": {
+            "type": "string",
+            "description": "Working directory to execute the command in."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds. Set to 0 to disable the timeout."
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    "read": {
+      "name": "read",
+      "description": "Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as <line>: <content>. The prefix is for reference and is not part of the file content. Directory entries are returned one per line. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File or directory to read"
+          },
+          "offset": {
+            "type": "number",
+            "description": "The line or directory entry to start reading from (1-based)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "The maximum number of lines or directory entries to read"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  }
+}

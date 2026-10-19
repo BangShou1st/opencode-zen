@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /** Fail-closed model pricing, retirement, and protocol rules shared by consumers. */
 public final class OpenCodeZenFreeModelPolicy {
@@ -63,6 +64,34 @@ public final class OpenCodeZenFreeModelPolicy {
                 && catalogAvailable
                 && metadata != null
                 && metadata.chatExecutable();
+    }
+
+    /**
+     * V2.4-compatible runtime admission: a model MUST be present in the latest real Zen
+     * listing first. Metadata with known paid price or retirement status rejects it;
+     * missing pricing may use a "-free" suffix only after live confirmation.
+     * Caller must still route the ID to the correct Chat/Responses/Anthropic endpoint.
+     */
+    public static boolean isFreeInLiveListing(
+            String modelId, Set<String> liveZenIds, JsonNode catalogEntry) {
+        if (modelId == null || modelId.isBlank()
+                || liveZenIds == null || !liveZenIds.contains(modelId)) {
+            return false;
+        }
+        if (isRetired(catalogEntry)) {
+            return false;
+        }
+        JsonNode cost = catalogEntry == null ? null : catalogEntry.path("cost");
+        boolean inputKnown = cost != null && cost.isObject() && cost.path("input").isNumber();
+        boolean outputKnown = cost != null && cost.isObject() && cost.path("output").isNumber();
+        if (inputKnown && outputKnown) {
+            return hasExplicitZeroPrice(catalogEntry);
+        }
+        if ((inputKnown && cost.path("input").asDouble() > 0)
+                || (outputKnown && cost.path("output").asDouble() > 0)) {
+            return false;
+        }
+        return modelId.endsWith("-free") || hasExplicitZeroPrice(catalogEntry);
     }
 
     /** Explicitly free means numeric input and output prices are both exactly zero. */

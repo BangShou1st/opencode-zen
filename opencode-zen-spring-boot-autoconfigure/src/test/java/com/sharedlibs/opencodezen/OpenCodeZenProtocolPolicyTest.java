@@ -42,7 +42,7 @@ class OpenCodeZenProtocolPolicyTest {
         assertThat(request.headers().firstValue(OpenCodeZenProtocolPolicy.SESSION_ID_HEADER))
                 .contains("ses_0123456789ab0123456789abcd");
         assertThat(request.headers().firstValue(OpenCodeZenProtocolPolicy.REQUEST_HEADER))
-                .contains("msg_0123456789ab0123456789abcd");
+                .isEmpty(); // Python V2.4 omits x-opencode-request
         assertThat(request.headers().firstValue("Authorization")).contains("Bearer public");
         assertThat(OpenCodeZenProtocolPolicy.authorizationHeader("configured-key"))
                 .isEqualTo("Bearer configured-key");
@@ -59,32 +59,33 @@ class OpenCodeZenProtocolPolicyTest {
         // Omitting the CLI core envelope is answered upstream with 403 FreeTierError, so the
         // whole five-tool set is part of the request contract.
         assertThat(toolNames(payload.get("tools")))
-                .containsExactly("bash", "edit", "glob", "grep", "read");
+                .containsExactly("shell", "read");
         assertThat(parameters(payload.get("tools")))
-                .allSatisfy(parameters -> assertThat(parameters).containsEntry("additionalProperties", false));
+                .allSatisfy(parameters -> assertThat(parameters).containsKey("required"));
     }
 
     @Test
     void reservedToolNamesCoverTheWholeCliCoreSet() {
         assertThat(OpenCodeZenProtocolPolicy.reservedToolNames())
-                .containsExactly("bash", "edit", "glob", "grep", "read");
+                .containsExactly("shell", "read");
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "read"))).isTrue();
-        assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "grep"))).isTrue();
+        assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "shell"))).isTrue();
+        assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search", "grep"))).isFalse();
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(List.of("search"))).isFalse();
         assertThat(OpenCodeZenProtocolPolicy.hasReservedToolName(null)).isFalse();
     }
 
     @Test
     void appendingReservedToolsNeverDuplicatesAReservedName() {
-        // A plain (non chat-shaped) declaration is passed through untouched: 1 + 5 reserved.
+        // A plain (non chat-shaped) declaration is passed through untouched: 1 + 2 reserved.
         assertThat(OpenCodeZenProtocolPolicy.appendReservedTools(List.of(Map.of("name", "search"))))
-                .hasSize(6);
+                .hasSize(3);
         // An application tool that already claims a reserved name is not appended twice.
         Map<String, Object> alreadyRead = Map.of("type", "function",
                 "function", Map.of("name", "read"));
         List<Object> combined = OpenCodeZenProtocolPolicy.appendReservedTools(List.of(alreadyRead));
-        assertThat(combined).hasSize(5);
-        assertThat(toolNames(combined)).containsExactly("read", "bash", "edit", "glob", "grep");
+        assertThat(combined).hasSize(2);
+        assertThat(toolNames(combined)).containsExactly("read", "shell");
     }
 
     @SuppressWarnings("unchecked")
