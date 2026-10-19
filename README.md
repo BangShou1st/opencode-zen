@@ -173,3 +173,19 @@ Java `HttpRequest` Factory 并不会配置 `HttpClient` 的代理：`127.0.0.1:7
 本次结果只保证离线行为对齐；不代表真实 Zen 推理已经得到 200。
 
 升级消费者至 `com.sharedlibs:opencode-zen-spring-boot-starter:1.3.1` 前需发布新 Maven 版本。
+
+
+### Java 调用端如何明确选择网络连接（不自动切换出口）
+
+Git 仓库通过 `127.0.0.1:7897` 拉取成功不代表 Java HttpClient 的请求使用了同一个代理。可选择显式配置：
+
+```java
+HttpClient http = OpenCodeZenHttpClients.explicitHttpProxy("127.0.0.1", 7897);
+HttpRequest request = factory.newConversationChatRequest(true, null, conversationId, payload);
+HttpResponse<InputStream> result = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+// 按用户要求检查 statusCode；403/429 不自动换出口、不偷偷重试。
+```
+
+`OpenCodeZenHttpClients.direct()` 禁用代理；`system()` 使用 JVM 默认 ProxySelector（不能保证自动读取 HTTPS_PROXY 环境变量）。
+如果 Java 项目属于转发网关，可选使用 Factory 的 `newConversationInferenceRequest(..., payload, incomingHeaders)` 或 `newEphemeralInferenceRequest(..., payload, incomingHeaders)` 重载：仅透传项目名、经 Python V2.4 会话 counter 校验通过的 session，以及 Anthropic beta/version；不接受从该 map 覆盖 Authorization / x-api-key。
+请勿以 HTTP 403 是否变为 200 来判断工具描述归一化是否正确；先在离线测试中比较 Header 和 JSON Body。
