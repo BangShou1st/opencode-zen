@@ -18,8 +18,10 @@ public final class OpenCodeZenUpstreamDiagnostics {
     private OpenCodeZenUpstreamDiagnostics() {}
 
     /**
-     * Mirrors Python V2.4's _gateway_rejection. No response body is retained,
-     * logged or exposed. This method never inspects user prompts or API keys.
+     * Mirrors Python V2.4's _gateway_rejection, with the free tier's two
+     * block wordings from OpenCode-Zen-FreeX v0.3.1. No response body is
+     * retained, logged or exposed. This method never inspects user prompts or
+     * API keys.
      */
     public static Outcome classify(int statusCode, byte[] responseBody) {
         if (statusCode >= 200 && statusCode <= 299) {
@@ -33,9 +35,17 @@ public final class OpenCodeZenUpstreamDiagnostics {
             int length = Math.min(bytes.length, 65536);
             String message = new String(bytes, 0, length, StandardCharsets.UTF_8)
                     .toLowerCase(Locale.ROOT);
-            if (message.contains("detect abuse traffic")
+            // The free tier's wording for a network it has blocked. This is a
+            // fact about the egress IP, not about the request: the wording
+            // names traffic it considers abusive, or says its free models are
+            // not available from the caller's current network. Both forms are
+            // read by the same rule, and only the full pair is — "free models
+            // aren't available" alone is a retirement notice, not a block.
+            if (message.contains("abusive traffic")
                     || message.contains("abuse traffic")
-                    || message.contains("abusive traffic")) {
+                    || message.contains("abuse of traffic")
+                    || (message.contains("free models aren't available")
+                        && message.contains("from your current network"))) {
                 return Outcome.ABUSE_REJECTED;
             }
             if (message.contains("freetiererror") || message.contains("free tier")) {

@@ -16,16 +16,15 @@ repositories {
 dependencies {
     api("com.fasterxml.jackson.core:jackson-databind:2.17.2")
     api("org.springframework.boot:spring-boot-autoconfigure:3.3.2")
-    testImplementation("org.springframework.boot:spring-boot-test:3.3.2")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.3")
-    testImplementation("org.assertj:assertj-core:3.26.3")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.3.2")
 }
 
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
-}
+// This shared library ships NO tests: it is a lean artifact that other
+// projects depend on, and its correctness is checked from the outside — by
+// the opencode-zen-consumer-tests project, which resolves the PUBLISHED
+// coordinate and exercises the artifact the way a consumer does. A suite here
+// would prove the sources compile, not that the artifact a consumer gets
+// works.
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"

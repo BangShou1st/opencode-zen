@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.sharedlibs"
-version = "1.3.3"
+version = "1.4.0"
 
 subprojects {
     group = rootProject.group

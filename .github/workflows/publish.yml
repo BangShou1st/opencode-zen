@@ -22,7 +22,9 @@ jobs:
           java-version: "21"
       - name: Verify
         # `bash ./gradlew` avoids the executable bit that a Windows checkout does not carry.
-        run: bash ./gradlew test --no-daemon
+        # The library ships no tests: they live in the consumer-tests project,
+        # which resolves the published coordinate and exercises the artifact.
+        run: bash ./gradlew build --no-daemon
       - name: Publish
         run: bash ./gradlew publish --no-daemon
         env:

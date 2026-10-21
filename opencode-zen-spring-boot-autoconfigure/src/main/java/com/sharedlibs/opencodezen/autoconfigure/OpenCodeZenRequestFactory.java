@@ -35,8 +35,12 @@ public final class OpenCodeZenRequestFactory {
     private static final int MAX_CACHED_CONVERSATIONS = 8192;
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    /** Claude Code's per-conversation id at the tail of {@code metadata.user_id}. */
+    private static final java.util.regex.Pattern CLAUDE_SESSION =
+            java.util.regex.Pattern.compile("_session_([0-9A-Fa-f-]{36})$");
+
     private final String userAgent;
-    private final ConcurrentMap<UUID, String> conversationSessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> conversationSessions = new ConcurrentHashMap<>();
 
     public OpenCodeZenRequestFactory(String userAgent) {
         this.userAgent = Objects.requireNonNull(userAgent, "userAgent");
@@ -147,17 +151,17 @@ public final class OpenCodeZenRequestFactory {
                 ZenModelProtocol.CHAT, freeModel, apiKey, conversationKey, payload);
     }
 
-    private static HttpRequest postWithEnvelope(
+    private HttpRequest postWithEnvelope(
             HttpRequest.Builder builder, URI endpoint, ZenModelProtocol protocol,
             Map<String, Object> payload) {
         return postWithEnvelope(builder, endpoint, protocol, payload, Map.of());
     }
 
-    private static HttpRequest postWithEnvelope(
+    private HttpRequest postWithEnvelope(
             HttpRequest.Builder builder, URI endpoint, ZenModelProtocol protocol,
             Map<String, Object> payload, Map<String, String> incomingHeaders) {
         Objects.requireNonNull(payload, "payload");
-        applySafeIncomingHeaders(builder, protocol, incomingHeaders);
+        applySafeIncomingHeaders(builder, protocol, incomingHeaders, payload);
         String expectedPath = OpenCodeZenProtocolPolicy.inferencePath(protocol);
         if (!endpoint.getPath().endsWith(expectedPath)) {
             throw new IllegalArgumentException(
@@ -178,29 +182,42 @@ public final class OpenCodeZenRequestFactory {
         }
     }
 
-    private static void applySafeIncomingHeaders(
+    private void applySafeIncomingHeaders(
             HttpRequest.Builder builder, ZenModelProtocol protocol,
-            Map<String, String> incoming) {
-        if (incoming == null || incoming.isEmpty()) {
-            return;
-        }
+            Map<String, String> incoming, Map<String, Object> payload) {
         String project = header(incoming, "x-opencode-project");
         if (project != null) {
             builder.setHeader("x-opencode-project", singleLine(project, "project"));
         }
-        // V2.4 accepts a supplied session ID only when its counter gate passes;
-        // otherwise it constructs a fresh session.
-        String session = null;
-        for (String header : new String[] {"x-opencode-session", "x-opencode-session-id",
-                "x-session-affinity", "x-session-id", "conversation-id"}) {
-            session = header(incoming, header);
-            if (session != null) {
-                break;
-            }
-        }
-        if (OpenCodeZenIdGenerator.isV24SessionAffinityValid(session)) {
+        // A session the caller states is taken verbatim when it is an id the
+        // client could have minted (its counter gate passes); otherwise the
+        // session this factory already generated for the conversation stands.
+        String session = header(incoming, "x-opencode-session");
+        if (session == null) session = header(incoming, "x-opencode-session-id");
+        if (session == null) session = header(incoming, "x-session-affinity");
+        if (session == null) session = header(incoming, "x-session-id");
+        if (session == null) session = header(incoming, "session_id");
+        if (session == null) session = header(incoming, "conversation-id");
+        if (session == null) session = header(incoming, "conversation_id");
+        if (session != null && OpenCodeZenIdGenerator.isV24SessionAffinityValid(session)) {
             builder.setHeader("x-opencode-session", session);
             builder.setHeader("x-opencode-session-id", session);
+        }
+        // The body may name the conversation too. A host signal is the
+        // conversation's own name for itself, and it is not an id the client
+        // minted, so it is remembered as the key of a session of our own
+        // rather than sent as one: the same signal then answers the same
+        // upstream session for the whole conversation, and two different
+        // signals never share one.
+        if (session == null) {
+            String named = bodyConversationSignal(payload);
+            if (named != null) {
+                String derived = sessionForSignal(named);
+                if (derived != null) {
+                    builder.setHeader("x-opencode-session", derived);
+                    builder.setHeader("x-opencode-session-id", derived);
+                }
+            }
         }
         if (protocol == ZenModelProtocol.ANTHROPIC) {
             String version = header(incoming, "anthropic-version");
@@ -212,6 +229,67 @@ public final class OpenCodeZenRequestFactory {
                 builder.setHeader("anthropic-beta", singleLine(beta, "anthropic-beta"));
             }
         }
+    }
+
+    /**
+     * The name a request body gives its conversation, in the order the free
+     * tier's own identity rule reads it: the host's conversation id first,
+     * then the metadata name, then the Claude Code user id.
+     *
+     * <p>An empty name is no name — the request is keyed the way any unnamed
+     * one is, and not by a key every host that sends an empty name shares.
+     */
+    private static String bodyConversationSignal(Map<String, Object> payload) {
+        Object conversation = payload.get("conversation_id");
+        if (conversation instanceof String text && !text.isEmpty()) {
+            return text;
+        }
+        Object metadata = payload.get("metadata");
+        if (metadata instanceof Map<?, ?> map) {
+            Object named = map.get("session_id");
+            if (named instanceof String text && !text.isEmpty()) {
+                return text;
+            }
+            String claude = claudeSessionId(map.get("user_id"));
+            if (claude != null) {
+                return claude;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Claude Code names its conversation in the tail of {@code metadata.user_id}:
+     * {@code user_<hash>_account_<uuid>_session_<uuid>}. Only the last part is
+     * per conversation — the rest is per user, so it cannot name one. A JSON
+     * string or object carrying a {@code session_id} is the same signal.
+     */
+    private static String claudeSessionId(Object userId) {
+        if (userId instanceof String text && !text.isEmpty()) {
+            java.util.regex.Matcher matcher = CLAUDE_SESSION.matcher(text);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            try {
+                com.fasterxml.jackson.databind.JsonNode parsed = JSON.readTree(text);
+                if (parsed != null && parsed.isObject()) {
+                    com.fasterxml.jackson.databind.JsonNode named = parsed.get("session_id");
+                    if (named != null && named.isTextual() && !named.asText().isEmpty()) {
+                        return named.asText();
+                    }
+                }
+            } catch (JsonProcessingException ignored) {
+                // not JSON, and the underscore form above was its only other chance
+            }
+            return null;
+        }
+        if (userId instanceof Map<?, ?> map) {
+            Object named = map.get("session_id");
+            if (named instanceof String text && !text.isEmpty()) {
+                return text;
+            }
+        }
+        return null;
     }
 
     private static String header(Map<String, String> headers, String name) {
@@ -237,7 +315,18 @@ public final class OpenCodeZenRequestFactory {
     }
 
     private String sessionFor(UUID conversationKey) {
-        String cached = conversationSessions.get(conversationKey);
+        return sessionForSignal("uuid:" + conversationKey);
+    }
+
+    /**
+     * The session id kept for a conversation key, minted on first sight and
+     * reused while the key stays.
+     */
+    private String sessionForSignal(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        String cached = conversationSessions.get(key);
         if (cached != null) {
             return cached;
         }
@@ -247,7 +336,7 @@ public final class OpenCodeZenRequestFactory {
             conversationSessions.clear();
         }
         String generated = OpenCodeZenIdGenerator.newSessionId();
-        String existing = conversationSessions.putIfAbsent(conversationKey, generated);
+        String existing = conversationSessions.putIfAbsent(key, generated);
         return existing == null ? generated : existing;
     }
 

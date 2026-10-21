@@ -92,9 +92,34 @@ public final class OpenCodeZenSseEventReader {
                 }
             }
         }
-        if (currentLine.size() > 0
-                && !new String(currentLine.toByteArray(), StandardCharsets.UTF_8).trim().isEmpty()) {
-            throw new StreamFailure("truncated_sse", "Upstream SSE ended mid-line");
+        // The stream ended without the newline that would have completed the
+        // last line. The pending bytes are dispatched as they stand when they
+        // are a whole event — the completion marker among them is a whole
+        // event too — and bytes that are not a whole event fail as they
+        // always have. Half an event is not made acceptable by this.
+        if (currentLine.size() > 0) {
+            byte[] bytes = currentLine.toByteArray();
+            int length = bytes.length;
+            if (length > 0 && bytes[length - 1] == '\r') {
+                length--;
+            }
+            if (length > 0) {
+                if (startsWith(bytes, length, "data:")) {
+                    int offset = 5;
+                    while (offset < length && bytes[offset] == ' ') {
+                        offset++;
+                    }
+                    if (!firstData[0]) {
+                        frameData.write('\n');
+                    }
+                    frameData.write(bytes, offset, length - offset);
+                    firstData[0] = false;
+                } else if (startsWith(bytes, length, "event:")) {
+                    eventName[0] = new String(bytes, 6, length - 6, StandardCharsets.UTF_8).trim();
+                } else {
+                    throw new StreamFailure("truncated_sse", "Upstream SSE ended mid-line");
+                }
+            }
         }
         emit(frameData, eventName, firstData, receiver, true);
     }

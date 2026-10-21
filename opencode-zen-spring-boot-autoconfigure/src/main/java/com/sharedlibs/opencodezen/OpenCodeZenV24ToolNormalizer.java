@@ -10,8 +10,19 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Mirrors Python V2.4 _names_for_tools without changing the caller's objects.
+ * Normalizes the caller's tool declarations into the shape Zen reads.
+ *
+ * <p>Mirrors OpenCode-Zen-FreeX v0.3.1's {@code normalizeTools} (and the Python
+ * V3.0 proxy's {@code _normalize_tools}) without changing the caller's objects.
  * Synthetic placeholders never become authorized tool implementations.
+ *
+ * <p><b>The legacy {@code functions} array is folded into {@code tools} and
+ * dropped.</b> The legacy top-level {@code functions} array is the older way of
+ * declaring the same tools, and one a chat host may still use. Its names are
+ * declarations, so they count as declared — but every declaration has to go
+ * out in {@code tools}, because that is the array Zen reads. Left where it was,
+ * a declaration is one Zen may not read; and a declaration in both arrays is a
+ * tool sent twice, once with OpenCode's wording and once with the host's.
  */
 final class OpenCodeZenV24ToolNormalizer {
     private OpenCodeZenV24ToolNormalizer() { }
@@ -28,15 +39,16 @@ final class OpenCodeZenV24ToolNormalizer {
             throw new IllegalArgumentException("functions must be an array");
         }
 
+        // The legacy declarations, in the chat wire shape. A name already in
+        // `tools` is one declaration under two spellings: it goes out once.
         List<Map<String, Object>> legacy = new ArrayList<>();
         Set<String> given = new LinkedHashSet<>();
         if (rawLegacy instanceof List<?> list) {
             for (Object item : list) {
                 if (!(item instanceof Map<?, ?> map) || !(map.get("name") instanceof String name)) {
-                    continue; // Python V2.4 ignores invalid legacy function entries
+                    continue; // invalid legacy function entries are ignored, as upstream does
                 }
                 Map<String, Object> copy = stringMap(map);
-                fillDescription(copy);
                 legacy.add(copy);
                 given.add(name);
             }
@@ -62,29 +74,54 @@ final class OpenCodeZenV24ToolNormalizer {
                 if (!(rawName instanceof String name)) {
                     throw new IllegalArgumentException("Invalid tool definition");
                 }
-                fillDescription(details);
                 given.add(name);
                 firstPositions.putIfAbsent(name, details);
                 result.add(outer);
             }
         }
 
+        // Every legacy declaration goes out in `tools`, in the chat shape, with
+        // the caller's own parameters. The host's parameters are kept: Zen does
+        // not read those, and the call the model makes has to fit the tool that
+        // will run it.
+        for (Map<String, Object> function : legacy) {
+            String name = (String) function.get("name");
+            if (firstPositions.containsKey(name)) {
+                continue; // already declared in `tools`: one declaration, sent once
+            }
+            Map<String, Object> definition = new LinkedHashMap<>();
+            definition.put("name", name);
+            if (function.containsKey("description")) {
+                definition.put("description", function.get("description"));
+            }
+            definition.put("parameters", function.get("parameters"));
+            Map<String, Object> tool = new LinkedHashMap<>();
+            tool.put("type", "function");
+            tool.put("function", definition);
+            firstPositions.put(name, definition);
+            result.add(tool);
+        }
+
+        // A tool the caller declared keeps its own schema and takes only the
+        // captured wording: Zen reads the wording of a tool it knows by name,
+        // and a host that is not OpenCode describes its tools in its own words.
         for (String name : OpenCodeZenClientProfile.pinnedToolNames()) {
             String captured = OpenCodeZenClientProfile.capturedDescription(name);
-            if (firstPositions.containsKey(name)) {
-                firstPositions.get(name).put("description", captured);
-            } else if (given.contains(name)) {
-                for (Map<String, Object> function : legacy) {
-                    if (name.equals(function.get("name"))) {
-                        function.put("description", captured);
-                    }
-                }
+            Map<String, Object> declared = firstPositions.get(name);
+            if (declared != null) {
+                declared.put("description", captured);
             } else if (OpenCodeZenProtocolPolicy.reservedToolNames().contains(name)) {
+                // The names in `required` are stood in for: a host that is not
+                // OpenCode has no tool by these names, and Zen reads a request
+                // as belonging to a generation partly by the tools it carries.
                 result.add(OpenCodeZenClientProfile.toolDeclaration(name, protocol));
             }
         }
-        if (rawLegacy != null && protocol == ZenModelProtocol.CHAT) {
-            body.put("functions", legacy);
+
+        // The legacy array is dropped: every declaration it carried is in
+        // `tools` now, and leaving it would send one tool twice.
+        if (protocol == ZenModelProtocol.CHAT) {
+            body.remove("functions");
         }
         return result;
     }
@@ -125,13 +162,6 @@ final class OpenCodeZenV24ToolNormalizer {
             copy.put(key, entry.getValue());
         }
         return copy;
-    }
-
-    private static void fillDescription(Map<String, Object> fn) {
-        Object value = fn.get("description");
-        if (value == null || Boolean.FALSE.equals(value) || "".equals(value)) {
-            fn.put("description", "Tool function");
-        }
     }
 
     private static void checkProtocol(ZenModelProtocol protocol) {

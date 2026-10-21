@@ -10,4 +10,5 @@ metadata and backs off when an application provides its own
 OpenCodeZenRequestFactory bean. Free models use the public credential; paid
 models require an API key.
 
-Published coordinates: com.sharedlibs:opencode-zen-spring-boot-autoconfigure:1.1.1.
+This module carries no tests and never reaches the network: see the repository
+README for how it is verified.

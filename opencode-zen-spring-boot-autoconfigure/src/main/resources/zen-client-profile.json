@@ -1,6 +1,7 @@
 {
-  "source": "https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/main/fingerprint.json",
-  "snapshot_date": "2026-10-17",
+  "source": "https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/v0.3.1/fingerprint.json",
+  "source_commit": "8b5b975",
+  "snapshot_date": "2026-10-21",
   "generation": "2.x",
   "agent": {
     "channel": "latest",
@@ -14,7 +15,7 @@
   "tools": {
     "shell": {
       "name": "shell",
-      "description": "Execute a shell command and return its output. Commands run on Windows using PowerShell (5.1). Quote file paths containing spaces or special characters. Prefer dedicated tools over shell commands when possible. When output is large, the full result is saved to a file and a truncated preview is returned. Rely on automatic truncation unless filtering the output is more useful. Commands accept an optional timeout, background commands have no timeout by default. Background commands return immediately, and you will be notified when they complete.",
+      "description": "Execute a shell command and return its output. Commands run in the current shell. Quote file paths containing spaces or special characters. Prefer dedicated tools over shell commands when possible. When output is large, the full result is saved to a file and a truncated preview is returned. Rely on automatic truncation unless filtering the output is more useful. Commands accept an optional timeout, background commands have no timeout by default. Background commands return immediately, and you will be notified when they complete.",
       "parameters": {
         "type": "object",
         "properties": {
