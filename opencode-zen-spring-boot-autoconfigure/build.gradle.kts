@@ -21,7 +21,7 @@ dependencies {
 
 // This shared library ships NO tests: it is a lean artifact that other
 // projects depend on, and its correctness is checked from the outside — by
-// the opencode-zen-consumer-tests project, which resolves the PUBLISHED
+// the opencode-zen-consumer-app project, which resolves the PUBLISHED
 // coordinate and exercises the artifact the way a consumer does. A suite here
 // would prove the sources compile, not that the artifact a consumer gets
 // works.
