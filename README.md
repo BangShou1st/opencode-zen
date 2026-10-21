@@ -8,19 +8,43 @@ JVM 共享库，用于与 OpenCode Zen 交互：协议常量、OpenCode 2.x 客�
 | `opencode-zen-spring-boot-autoconfigure` | 协议/模型/凭据规则、属性、自动装配、请求工厂 |
 | `opencode-zen-spring-boot-starter` | 聚合入口（消费方只需要这一个坐标） |
 
-- group：`com.sharedlibs`
-- 当前版本：`1.4.0`
+- group：`com.sharedlibs`（GitHub Packages）/ `com.github.BangShou1st.opencode-zen`（JitPack）
+- 当前版本：`1.4.1`（JitPack 坐标带 `v`：`v1.4.1`）
 - 版本历史见 [CHANGELOG.md](CHANGELOG.md)
 
 **本库不带测试**，也不联网。它是一个别人依赖的精简产物；所有验证在独立的
-[`opencode-zen-consumer-app`](https://github.com/BangShou1st/opencode-zen-consumer-app) 项目里，
-以**发布坐标**的方式引入本库 —— 也就是消费方真正拿到的那条路径。
+`opencode-zen-consumer-app` 项目里（本机工程，未公开发布），以**发布坐标**的方式引入本库 ——
+也就是消费方真正拿到的那条路径。
+
+> **本仓库是公开的**：jar 里带着客户端身份采集（`zen-client-profile.json`），这是客户端能工作的
+> 一部分，任何人都能从 jar 里读到它。使用前请自行确认是否符合上游的服务条款。
 
 ---
 
-## 其他项目怎么接入（复制下面三段就够）
+## 其他项目怎么接入（复制下面两段就够）
 
-### ① 凭据（每台机器/CI 配一次，放 `~/.gradle/gradle.properties`，**不要提交**）
+同一份源码，两条通道。**推荐通道 A（JitPack）**：公开、免 token、不需要 `mavenLocal()`。
+
+### 通道 A —— JitPack（公开仓库，免 token，推荐）
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+}
+dependencies {
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.1")
+}
+```
+
+- 坐标规则：`com.github.<owner>.<repo>:<模块名>:<tag>`；模块名是 `opencode-zen-spring-boot-starter`
+  或 `opencode-zen-spring-boot-autoconfigure`，tag 就是 `v1.4.1`（带 `v`）。
+- 首次解析时 JitPack 按 tag 现场构建（几十秒到几分钟），之后走缓存。
+- **不需要任何凭据**，也不需要本机 Maven 仓库。
+
+### 通道 B —— GitHub Packages（我们的 CI 发布，需要 PAT）
+
+凭据放 `~/.gradle/gradle.properties`（**不要提交**）：
 
 ```properties
 zenRepoUrl=https://maven.pkg.github.com/BangShou1st/opencode-zen
@@ -28,12 +52,9 @@ zenRepoUser=BangShou1st
 zenRepoToken=<PAT，勾 read:packages>
 ```
 
-### ② `build.gradle.kts`
-
 ```kotlin
 repositories {
     mavenCentral()
-    mavenLocal()                                  // 可选：本机免 token（见下）
     val url = providers.gradleProperty("zenRepoUrl").orNull
         ?: System.getenv("ZEN_MAVEN_REPO_URL")
     if (!url.isNullOrBlank()) {
@@ -50,14 +71,17 @@ repositories {
     }
 }
 dependencies {
-    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.4.0")
+    implementation("com.sharedlibs:opencode-zen-spring-boot-starter:1.4.1")
 }
 ```
 
+> GitHub Packages 的 Maven registry **即使仓库公开也要求下载认证**：PAT 需要 `read:packages`，
+> 账号还要对该包有读权限。
+>
 > 如果使用了 `dependencyResolutionManagement` 且 `repositoriesMode` 禁止项目仓库，请把这个 Maven 仓库配置
 > 移动到 **settings.gradle.kts** 的 `dependencyResolutionManagement.repositories`。
 
-### ③ 代码：零改动
+### 代码：零改动
 
 ```java
 import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenRequestFactory;
@@ -195,8 +219,9 @@ OpenCodeZenSseEventReader.read(response.body(), event -> {
 
 ## 本机开发免 token 的两种方式
 
-1. **吃本机仓库**：在库目录执行 `.\gradlew.bat publishToMavenLocal`，消费项目里保留
-   `repositories { mavenLocal() }`，即可不配 token。
+1. **吃 JitPack**（推荐）：消费项目里只加 `maven { url = uri("https://jitpack.io") }`，
+   依赖写成 `com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.1`，
+   不配 token、不碰本机 Maven 仓库。
 2. **直接吃本地源码（改库即时生效）**：只有**要改这个库**的项目才需要，属于"双模"的可选部分：
 
 ```kotlin
@@ -217,24 +242,26 @@ if (localZen != null && localZen.resolve("settings.gradle.kts").isFile) {
 $env:OPENCODE_ZEN_LOCAL="E:\project\shared-libs\opencode-zen"   # 改完库立刻生效
 ```
 
-> **判断标准**：*只使用、不改库* 的项目 → 只配 ①②③；*要改库* 的项目 → 再加这段双模。
+> **判断标准**：*只使用、不改库* 的项目 → 只配通道 A 或 B；*要改库* 的项目 → 再加这段双模。
 
 ---
 
 ## 发布新版本（维护本库时才做）
 
-1. 改 `build.gradle.kts` 里的 `version`（GitHub Packages **同版本不可覆盖**，必须递增）；
-2. 发到私有包：
+1. 改根 `build.gradle.kts` 里的 `version`（GitHub Packages **同版本不可覆盖**，必须递增）；
+2. 打 tag 并推送 —— **一个 tag 同时喂两条通道**：
    ```powershell
-   $env:ZEN_MAVEN_REPO_URL="https://maven.pkg.github.com/BangShou1st/opencode-zen"
-   $env:ZEN_MAVEN_USER="BangShou1st"
-   $env:ZEN_MAVEN_TOKEN="<PAT，勾 write:packages>"
-   .\gradlew.bat publish
+   git tag v1.4.1
+   git push origin main --tags
    ```
-   或在本仓库的 CI 中用 `GITHUB_TOKEN`（`permissions: packages: write`）发布；
+   - 本仓库的 CI（`publish.yml`）发到 **GitHub Packages**：`com.sharedlibs:<模块>:<版本号>`；
+   - **JitPack** 看到同一个 tag 会自行构建：`com.github.BangShou1st.opencode-zen:<模块>:<tag>`，
+     免 token 可下载（配置见 `jitpack.yml`：JDK 21 + Gradle 8.9）。
 3. 消费方只改依赖那一行的版本号。
 
-> 本仓库必须保持 **Private**：库内包含 CLI 身份头与工具信封，不应公开分发。
+> 本仓库已按 JitPack 通道的要求**转为公开**（公开是 JitPack 免 token 的前提）。
+> jar 里带着客户端身份采集，任何人都能读到 —— 使用前请自行确认是否符合上游的服务条款。
+> 需要更严格的分发控制时，把 jar 留在私有通道（GitHub Packages），公开的只放服务。
 
 ---
 

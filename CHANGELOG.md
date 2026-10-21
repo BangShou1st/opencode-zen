@@ -2,6 +2,26 @@
 
 本库的行为约定见 [README.md](README.md#行为约定当前协议事实)。这里只记**改了什么、为什么**。
 
+## 1.4.1 — 公开分发：JitPack 免 token 通道
+
+同一个 tag 喂两条通道：`com.sharedlibs:<模块>:<版本号>`（GitHub Packages，我们的 CI 发布）
+与 `com.github.BangShou1st.opencode-zen:<模块>:<tag>`（JitPack，**消费者零凭据**）。
+
+- **仓库转为公开**。这是 JitPack 免 token 的前提 —— 私有仓库的构建要 JitPack 账号。
+  代价写在明处：jar 里带着客户端身份采集（`zen-client-profile.json`），公开仓库等于公开这份采集，
+  任何人都能从 jar 里读到它。用它之前请自行确认是否符合上游的服务条款。
+- 新增 `jitpack.yml`：JDK 21 + Gradle 8.9，构建命令 `gradle clean test publishToMavenLocal`。
+  这里的 `publishToMavenLocal` 是 **JitPack 构建机自己的步骤**（它把构建结果重新打包成坐标），
+  不是消费方要用本机 Maven 仓库。
+- 根 `build.gradle.kts` 按 `JITPACK=true` 切换坐标：JitPack 侧 group 为 `com.github.<owner>.<repo>`、
+  version 为 **tag 本身**（`v1.4.1`）；GitHub Packages 侧仍是 `com.sharedlibs` + 纯版本号。
+  没有这个开关，本地构建和我们的 publish job 都不受影响。
+- `settings.gradle.kts` 在 JitPack 环境下改用 Google 的 Maven Central 镜像：
+  JitPack 构建机共用 IP，常被 Maven Central 限流（HTTP 429）。
+- README 改为「通道 A（JitPack，免 token）/ 通道 B（GitHub Packages，需 PAT）」两条路，
+  并删掉「本仓库必须保持 Private」那条与现状冲突的约束。
+- 版本 `1.4.0` → `1.4.1`。
+
 ## 1.4.0 — 对齐 OpenCode-Zen-FreeX v0.3.1
 
 参考实现：[OpenCode-Zen-FreeX](https://github.com/tkhs101/OpenCode-Zen-FreeX) **v0.3.1**（提交 `8b5b975`）。

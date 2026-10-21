@@ -1,0 +1,13 @@
+# JitPack builds this repository remotely from a tag. The coordinate consumers
+# use is com.github.BangShou1st.opencode-zen:<module>:<tag> and it needs no
+# credentials at all — that is the point of this file.
+#
+# `publishToMavenLocal` here is JitPack's OWN build step: JitPack repackages
+# whatever lands in the build machine's local Maven repository. It does NOT
+# mean consumers use mavenLocal(); consumers resolve the published coordinate.
+jdk:
+  - openjdk21
+before_install:
+  - sdk install gradle 8.9
+install:
+  - gradle --no-daemon clean test publishToMavenLocal
