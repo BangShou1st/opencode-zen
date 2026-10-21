@@ -37,24 +37,9 @@ publishing {
             from(components["java"])
         }
     }
-    repositories {
-        // Lightweight local consumption: `.\gradlew.bat publishToMavenLocal` then any project
-        // just adds `repositories { mavenLocal() }` plus the coordinate below.
-        mavenLocal()
-        // Optional private ecosystem repository (GitHub Packages / Nexus / Artifactory),
-        // supplied by environment so no URL or credential is committed:
-        //   ZEN_MAVEN_REPO_URL, ZEN_MAVEN_USER, ZEN_MAVEN_TOKEN
-        val ecosystemUrl = System.getenv("ZEN_MAVEN_REPO_URL").orEmpty().trim()
-        if (ecosystemUrl.isNotEmpty()) {
-            maven {
-                name = "zenEcosystem"
-                url = uri(ecosystemUrl)
-                isAllowInsecureProtocol = ecosystemUrl.startsWith("http://")
-                credentials {
-                    username = System.getenv("ZEN_MAVEN_USER").orEmpty()
-                    password = System.getenv("ZEN_MAVEN_TOKEN").orEmpty()
-                }
-            }
-        }
-    }
+    // No publishing repository on purpose. The artifact reaches consumers
+    // through JitPack, which builds the public GitHub tag and repackages what
+    // `publishToMavenLocal` leaves in the build machine's local Maven
+    // repository — that task needs no repository declaration. There is no
+    // private registry and no local channel.
 }

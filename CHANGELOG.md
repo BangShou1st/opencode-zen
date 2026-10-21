@@ -2,6 +2,20 @@
 
 本库的行为约定见 [README.md](README.md#行为约定当前协议事实)。这里只记**改了什么、为什么**。
 
+## v1.4.2 — 只留 JitPack 一条路
+
+分发渠道从两条收到一条：**JitPack**。私有通道和本机通道一起删掉。
+
+- **删掉 GitHub Packages 通道**：根脚本不再按环境切坐标（group 恒为
+  `com.github.BangShou1st.opencode-zen`，version 恒为 tag），模块的 `publishing` 不再声明任何仓库，
+  `.github/workflows/publish.yml` 一并删除 —— 那个 workflow 唯一的职责就是往私有包发版。
+- **删掉本机通道**：模块不再把 `mavenLocal()` 当发布目标。JitPack 不受影响 ——
+  `publishToMavenLocal` 不需要声明任何仓库，它把产物写进构建机自己的本地仓库，
+  JitPack 再从那里重新打包成坐标。
+- 消费方（`opencode-zen-consumer-app`）同步收窄：只留 JitPack 一个仓库，**没有 `mavenLocal()`**，
+  不需要任何凭据；CI 也不再 checkout 源码本地发版，直接解析发布坐标。
+- 版本 `v1.4.1` → `v1.4.2`。
+
 ## 1.4.1 — 公开分发：JitPack 免 token 通道
 
 同一个 tag 喂两条通道：`com.sharedlibs:<模块>:<版本号>`（GitHub Packages，我们的 CI 发布）
