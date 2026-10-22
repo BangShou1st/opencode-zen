@@ -1,237 +1,191 @@
-# OpenCode Zen 共享库（opencode-zen）
+<div align="center">
 
-JVM 共享库，用于与 OpenCode Zen 交互：协议常量、OpenCode 2.x 客户端请求 Profile、凭据规则、
-模型元数据解析、`ses_`/`msg_` 标识符生成、SSE 帧解码，以及请求工厂 + Spring Boot 自动装配。
+# OpenCode Zen for Java
 
-| 模块 | 作用 |
-|---|---|
-| `opencode-zen-spring-boot-autoconfigure` | 协议/模型/凭据规则、属性、自动装配、请求工厂 |
-| `opencode-zen-spring-boot-starter` | 聚合入口（消费方只需要这一个坐标） |
+A Spring Boot starter for OpenCode Zen.
 
-- group：`com.github.BangShou1st.opencode-zen`
-- 当前版本：`v1.4.2`（版本号就是 tag，带 `v`）
-- 版本历史见 [CHANGELOG.md](CHANGELOG.md)
+[![Build](https://github.com/BangShou1st/opencode-zen/actions/workflows/verify.yml/badge.svg)](https://github.com/BangShou1st/opencode-zen/actions/workflows/verify.yml)
+![Java 21](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
+![Spring Boot 3.3.2](https://img.shields.io/badge/Spring_Boot-3.3.2-6DB33F?logo=springboot&logoColor=white)
+[![JitPack](https://jitpack.io/v/BangShou1st/opencode-zen.svg)](https://jitpack.io/#BangShou1st/opencode-zen)
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**本库不带测试**，也不联网。它是一个别人依赖的精简产物；所有验证在独立的
-`opencode-zen-consumer-app` 项目里（本机工程，未公开发布），以**发布坐标**的方式引入本库 ——
-也就是消费方真正拿到的那条路径。
+**English** · [简体中文](README.zh-CN.md)
 
-> **本仓库是公开的**：jar 里带着客户端身份采集（`zen-client-profile.json`），这是客户端能工作的
-> 一部分，任何人都能从 jar 里读到它。使用前请自行确认是否符合上游的服务条款。
+[Quick start](#quick-start) · [Usage](#usage) · [Development](#development) · [Protocol notes](docs/protocol.md)
 
----
+</div>
 
-## 其他项目怎么接入（复制下面两段就够）
+Build OpenCode Zen requests in Java with consistent headers, credentials, session identifiers, and tool declarations. The starter provides an auto-configured request factory; your application sends requests with its own HTTP client and handles the responses.
 
-### ① 依赖坐标
+## Features
+
+- **Three inference formats** — request construction for Chat Completions, Responses, and Anthropic Messages.
+- **Spring Boot integration** — inject `OpenCodeZenRequestFactory`, or provide your own bean to override the default.
+- **Request compatibility** — a bundled OpenCode 2.x client profile, generated session/message identifiers, and protocol-specific tool normalization.
+- **Model and credential policies** — catalog parsing, free-model admission rules, and public versus API-key authentication.
+- **Streaming utilities** — SSE frame decoding, JSON event reading, and upstream error classification.
+- **Explicit transport choices** — helpers for direct, JVM-configured, or HTTP proxy connections. No automatic retries or route switching on HTTP 403/429.
+
+This project supplies request and protocol utilities. Credential storage, routing, budgets, tool execution, and application workflows belong to the consuming application.
+
+## Quick start
+
+### Requirements
+
+- Java 21 or later.
+- Spring Boot dependencies are built against **3.3.2**; other versions should be verified in your application.
+- Artifacts are distributed through **JitPack**. The documented version is **`v1.4.2`**, including the leading `v`.
+
+### Install
+
+**Gradle Kotlin DSL**
 
 ```kotlin
 repositories {
     mavenCentral()
     maven { url = uri("https://jitpack.io") }
 }
+
 dependencies {
     implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.2")
 }
 ```
 
-- 坐标规则：`com.github.<owner>.<repo>:<模块名>:<tag>`；模块名是 `opencode-zen-spring-boot-starter`
-  或 `opencode-zen-spring-boot-autoconfigure`，tag 就是 `v1.4.2`（带 `v`）。
-- 首次解析时 JitPack 按 tag 现场构建（几十秒到几分钟），之后走缓存。
-- **不需要任何凭据**，不需要 PAT，也不需要本机 Maven 仓库（没有 `mavenLocal()` 这一说）。
+If your build centralizes repositories, add JitPack to `dependencyResolutionManagement.repositories` in `settings.gradle.kts`.
 
-> 如果使用了 `dependencyResolutionManagement` 且 `repositoriesMode` 禁止项目仓库，请把这个 Maven 仓库配置
-> 移动到 **settings.gradle.kts** 的 `dependencyResolutionManagement.repositories`。
+**Maven**
 
-### 代码：零改动
+```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>com.github.BangShou1st.opencode-zen</groupId>
+        <artifactId>opencode-zen-spring-boot-starter</artifactId>
+        <version>v1.4.2</version>
+    </dependency>
+</dependencies>
+```
+
+Public artifact downloads require no token. JitPack may need time to build a tag on its first resolution; check the [build page](https://jitpack.io/#BangShou1st/opencode-zen) if a dependency is unavailable.
+
+### Build and send a request
+
+The starter registers the request factory automatically. No library configuration is required.
 
 ```java
+import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenHttpClients;
 import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenRequestFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.net.http.HttpClient;
+import java.net.http.HttpResponse;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
 @Service
-public class AiService {
-    private final OpenCodeZenRequestFactory kilo;   // 由 starter 自动装配
-    public AiService(OpenCodeZenRequestFactory kilo) { this.kilo = kilo; }
-}
-```
+public class ZenChatService {
+    private final OpenCodeZenRequestFactory factory;
+    private final HttpClient http = OpenCodeZenHttpClients.system();
 
-没有别的配置项；`opencode.zen.user-agent` 有默认值。
+    public ZenChatService(OpenCodeZenRequestFactory factory) {
+        this.factory = factory;
+    }
 
----
-
-## 怎么用
-
-### 完整 Chat POST 示例
-
-```java
-@Autowired OpenCodeZenRequestFactory factory;
-
-HttpRequest request = factory.newConversationChatRequest(
-    true, null, UUID.randomUUID(),
-    Map.of(
-        "model", "big-pickle",
-        "messages", List.of(Map.of("role", "user", "content", "你好"))
-    )
-);
-HttpResponse<InputStream> upstream = HttpClient.newHttpClient().send(
-    request, HttpResponse.BodyHandlers.ofInputStream());
-// 上游会返回 SSE；在消费者中解析并过滤所有未实现的工具调用。
-```
-
-对应完整请求也可调用：
-`newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)`；
-`newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)`。
-
-### Java 调用端如何明确选择网络连接（不自动切换出口）
-
-Git 仓库通过 `127.0.0.1:7897` 拉取成功不代表 Java HttpClient 的请求使用了同一个代理。可选择显式配置：
-
-```java
-HttpClient http = OpenCodeZenHttpClients.explicitHttpProxy("127.0.0.1", 7897);
-HttpRequest request = factory.newConversationChatRequest(true, null, conversationId, payload);
-HttpResponse<InputStream> result = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-// 按用户要求检查 statusCode；403/429 不自动换出口、不偷偷重试。
-```
-
-`OpenCodeZenHttpClients.direct()` 禁用代理；`system()` 使用 JVM 默认 ProxySelector（不能保证自动读取 HTTPS_PROXY 环境变量）。
-
-如果 Java 项目属于转发网关，可选使用 Factory 的 `newConversationInferenceRequest(..., payload, incomingHeaders)` 或
-`newEphemeralInferenceRequest(..., payload, incomingHeaders)` 重载：仅透传项目名、经会话 counter 校验通过的 session，
-以及 Anthropic beta/version；不接受从该 map 覆盖 Authorization / x-api-key。正文里的会话名
-（`conversation_id`、`metadata.session_id`、Claude Code 的 `metadata.user_id`）也会被读入，用作本库自己会话的键 ——
-同一个名字整个会话答同一个上游会话。
-
-### 结果分类与 SSE 用法
-
-```java
-HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-var result = OpenCodeZenUpstreamDiagnostics.classify(response.statusCode(), response.body());
-if (result == OpenCodeZenUpstreamDiagnostics.Outcome.ABUSE_REJECTED) {
-    // 尊重服务端限制：停止调用，并通过服务商支持渠道处理。
-}
-```
-
-```java
-// 流式响应（不是上面的 byte[]）：
-OpenCodeZenSseEventReader.read(response.body(), event -> {
-    // event.name() / event.payload() / event.done()
-});
-```
-
----
-
-## 行为约定（当前协议事实）
-
-这些是本库对外承诺的行为，改动它们等同于改版本。
-
-**身份**
-
-- 请求带固定的 OpenCode CLI 身份头：`User-Agent: opencode/latest/2.0.29/cli`、
-  `Accept: */*`、`x-opencode-client: cli`、`x-opencode-project: global`、
-  `x-opencode-session` / `x-opencode-session-id`（同一个值）。
-- **不发送** `x-opencode-request`、`x-session-affinity`、`x-session-id`。
-- 普通 Chat / Responses 用 `Authorization: Bearer …`；Anthropic `/messages` 用 `x-api-key` + `anthropic-version`。
-- 免费模型用共享凭据 `public`；付费模型需要 API key。
-
-**工具信封**
-
-- 请求必须带 2.x 的 `shell` / `read` 声明，否则免费层会以 `403 FreeTierError` 拒收。
-  措辞与参数来自 `zen-client-profile.json`（逐字采集自上游 v0.3.1 的 `fingerprint.json`），
-  **不要混用 1.x 的 bash/edit/glob/grep**。
-- 调用方自己声明的 `shell`/`read` 保留自己的 schema，只取采集的措辞。
-- Chat 的旧式 `functions` 数组会被**折叠进 `tools` 并删除**（Zen 读的是 `tools`；
-  两个数组里都声明过的工具会发两遍）。
-- 追加的合成工具**只能作为占位声明，不能执行**。
-
-**会话**
-
-- 会话 id 必须是客户端可能铸出的形状（`ses_` + 12 位小写 hex + 14 位 base62），
-  否则上游会 `403 FreeTierError`；`OpenCodeZenIdGenerator` 负责生成。
-- 头部带来的 session 只有通过 counter 闸门才原样透传；正文带来的会话名
-  （`conversation_id` / `metadata.session_id` / Claude Code 的 `metadata.user_id`）被记住为本库自己会话的键。
-
-**免费模型**
-
-- `OpenCodeZenFreeAdmissionPolicy` 是**复核过的准入清单**（当前 9 个模型，见 CHANGELOG）。
-  `jev-1.13-free` 故意不在其中：它是决策端点，不是文本生成模型。
-- 判定规则：`deprecated` **不是**结束词；空值不是日期；`status` 优先于 `lifecycle`；
-  `-free` 名字赢过目录定价（目录是转免费时落后的一边）。
-
-**403 / 429**
-
-- 分类见 `OpenCodeZenUpstreamDiagnostics`：`ABUSE_REJECTED`（出口 IP 被封）、
-  `FREE_TIER_REJECTED`（请求形状被拒）、`RATE_LIMITED`、`FORBIDDEN`。
-- **403/429 一律不自动重试、不自动换出口。** 上游拒绝要原样处理；
-  改 Header 解决不了 IP 封禁，也不得靠轮换网络出口绕过服务端限制。
-
----
-
-## 兼容性和使用约束
-
-- **旧方法仍保留**：`newConversationRequest` / `newEphemeralRequest` 只返回附带 Header 的
-  `HttpRequest.Builder`。若消费方仍手写 Body，必须自行调用 `applyRequiredEnvelope`，
-  或迁移到新方法。
-- Java 库仍只是共享协议/请求工具，并不是完整 HTTP 代理；SSE 拼包、工具调用过滤和上游错误透传由消费方处理。
-- `callerDeclaredToolNames(payload, protocol)` 可在提交给上游之前记录真实调用方工具；
-  返回结果不包括追加的合成工具。**不得执行任何非调用方授权的工具。**
-- 请勿以 HTTP 403 是否变为 200 来判断工具描述归一化是否正确；先在离线测试中比较 Header 和 JSON Body。
-
----
-
-## 本机开发免 token 的两种方式
-
-1. **吃 JitPack**（推荐）：消费项目里只加 `maven { url = uri("https://jitpack.io") }`，
-   依赖写成 `com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.1`，
-   不配 token、不碰本机 Maven 仓库。
-2. **直接吃本地源码（改库即时生效）**：只有**要改这个库**的项目才需要，属于"双模"的可选部分：
-
-```kotlin
-// settings.gradle.kts —— 设了 OPENCODE_ZEN_LOCAL 就用本地源码替换同坐标依赖
-val localZen = System.getenv("OPENCODE_ZEN_LOCAL")?.let(::file)
-if (localZen != null && localZen.resolve("settings.gradle.kts").isFile) {
-    includeBuild(localZen) {
-        dependencySubstitution {
-            substitute(module("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-autoconfigure"))
-                .using(project(":opencode-zen-spring-boot-autoconfigure"))
-            substitute(module("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter"))
-                .using(project(":opencode-zen-spring-boot-starter"))
-        }
+    public HttpResponse<String> chat(UUID conversationId, String model, String prompt)
+            throws IOException, InterruptedException {
+        var payload = Map.<String, Object>of(
+                "model", model,
+                "messages", List.of(Map.of("role", "user", "content", prompt)));
+        // true/null selects public credentials for an eligible free model.
+        // For a paid model, pass false and your API key instead.
+        var request = factory.newConversationChatRequest(
+                true, null, conversationId, payload);
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 }
 ```
-```powershell
-$env:OPENCODE_ZEN_LOCAL="E:\project\shared-libs\opencode-zen"   # 改完库立刻生效
+
+Pass an eligible free-model ID from the current catalog and admission policy. Reuse the same `conversationId` across turns. The example returns the upstream status and raw body; the application must check the status and handle JSON or SSE before exposing a result.
+
+## Usage
+
+### Choose an inference format
+
+| Format | Protocol | Inference path |
+| --- | --- | --- |
+| Chat Completions | `ZenModelProtocol.CHAT` | `/chat/completions` |
+| Responses | `ZenModelProtocol.RESPONSES` | `/responses` |
+| Anthropic Messages | `ZenModelProtocol.ANTHROPIC` | `/messages` |
+
+The bundled inference base URL is `https://opencode.ai/inference/v1`. Use `newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)` for an explicit endpoint and format, or `newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)` for a one-off call. The endpoint path must match the protocol.
+
+### Read SSE events
+
+For a streaming payload, request `"stream": true` and use an input-stream body handler:
+
+```java
+import com.sharedlibs.opencodezen.OpenCodeZenSseEventReader;
+
+// http and request are supplied by the application.
+var response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+try (var body = response.body()) {
+    if (response.statusCode() != 200) {
+        throw new IOException("OpenCode Zen returned HTTP " + response.statusCode());
+    }
+    OpenCodeZenSseEventReader.read(body, event -> {
+        // Handle event.name(), event.payload(), and event.done().
+    });
+}
 ```
 
-> **判断标准**：*只使用、不改库* 的项目 → 只配坐标那一段；*要改库* 的项目 → 再加这段双模。
+The reader handles SSE framing and JSON events. Your adapter must assemble protocol-specific output and filter tool calls. Added compatibility tools are declarations only and must never be executed. Only tools explicitly authorized by the caller may run.
 
----
+### Credentials, networking, and errors
 
-## 发布新版本（维护本库时才做）
+- Free-model requests use the `public` credential; paid models require an API key. The caller supplies the free/paid decision using the model policies.
+- `OpenCodeZenHttpClients.system()` uses the JVM proxy selector. It does not guarantee support for `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
+- Use `direct()` for a direct connection or `explicitHttpProxy(host, port)` for an explicit HTTP proxy.
+- `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. HTTP 403/429 does not trigger automatic retries or route switching.
+- `opencode.zen.user-agent` is the library's configuration property; its default is the bundled client profile's User-Agent. Credentials remain application-owned.
 
-1. 改根 `build.gradle.kts` 里的 `version`（tag 同版本不可覆盖，必须递增）；
-2. 打 tag 并推送 —— **JitPack 看到 tag 会自行构建**：
-   ```powershell
-   git tag v1.4.2
-   git push origin main --tags
-   ```
-   产物坐标是 `com.github.BangShou1st.opencode-zen:<模块>:<tag>`，免 token 可下载
-   （构建配置见 `jitpack.yml`：JDK 21 + Gradle 8.9）。
-3. 消费方只改依赖那一行的版本号。
+See [protocol notes](docs/protocol.md) for session mapping, incoming header handling, legacy builders, and compatibility constraints.
 
-> 本仓库是**公开**的 —— 这是 JitPack 免 token 的前提。
-> jar 里带着客户端身份采集，任何人都能读到 —— 使用前请自行确认是否符合上游的服务条款。
-> 若哪天需要更严格的分发控制，就把 jar 收回私有，公开的只放服务。
+## Project structure
 
----
+| Module | Purpose |
+| --- | --- |
+| [`opencode-zen-spring-boot-starter`](opencode-zen-spring-boot-starter) | Dependency entry point for Spring Boot applications. |
+| [`opencode-zen-spring-boot-autoconfigure`](opencode-zen-spring-boot-autoconfigure) | Protocol policies, model parsing, SSE utilities, properties, and request factory. |
 
-## 构建（本库自身）
+## Development
 
-```powershell
-.\gradlew.bat build
+```bash
+git clone https://github.com/BangShou1st/opencode-zen.git
+cd opencode-zen
+./gradlew build
 ```
 
-**本库不带测试。** 库的 `gradle build` 永远离线、密封、快；库的 CI 不会因为上游限流而变红。
-而"发布坐标能不能解析、jar 里该有的东西在不在、真实 Spring 上下文能不能装配起来"这些
-**只有消费方视角能回答的问题**，在真正的消费方应用里回答。
+On Windows, run `.\gradlew.bat build`. The wrapper uses Gradle 8.9 and requires JDK 21. Gradle may download its distribution and dependencies; the library build makes no OpenCode Zen API calls.
+
+This repository currently contains no tests. GitHub Actions verifies the build. Published-artifact checks, Spring context integration, and optional live checks are maintained in a separate, unpublished `opencode-zen-consumer-app` project; a successful build alone does not establish upstream availability.
+
+For changes, keep both README files aligned, document behavior changes in [CHANGELOG.md](CHANGELOG.md), and include the verification performed in your pull request. Repository-specific development instructions are in [AGENTS.md](AGENTS.md).
+
+## Acknowledgments
+
+The bundled client profile and compatibility work reference [OpenCode-Zen-FreeX v0.3.1](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.3.1). Source attribution and its MIT notice are retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+This is an independent Java integration, unaffiliated with the OpenCode project. Model availability, pricing, and access are controlled by the upstream service; using this package does not grant service access.
+
+## License
+
+[MIT](LICENSE) © 2026 BangShou1st. Third-party components retain their respective licenses.
