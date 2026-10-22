@@ -12,7 +12,7 @@ A Spring Boot starter for OpenCode Zen.
 
 **English** · [简体中文](README.zh-CN.md)
 
-[Quick start](#quick-start) · [Usage](#usage) · [Development](#development) · [Protocol notes](docs/protocol.md)
+[Features](#features) · [Quick start](#quick-start) · [Usage](#usage) · [License](#license)
 
 </div>
 
@@ -157,7 +157,11 @@ The reader handles SSE framing and JSON events. Your adapter must assemble proto
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. HTTP 403/429 does not trigger automatic retries or route switching.
 - `opencode.zen.user-agent` is the library's configuration property; its default is the bundled client profile's User-Agent. Credentials remain application-owned.
 
-See [protocol notes](docs/protocol.md) for session mapping, incoming header handling, legacy builders, and compatibility constraints.
+### Integration notes
+
+- Conversation sessions are cached in memory within the factory instance; the mapping does not persist across restarts.
+- Inference overloads accepting `incomingHeaders` selectively forward project, validated session, and Anthropic beta/version headers. They do not allow incoming headers to override credentials.
+- Legacy `newConversationRequest` / `newEphemeralRequest` methods return header-bearing builders only. For inference, apply `OpenCodeZenProtocolPolicy.applyRequiredEnvelope` yourself or use the complete inference methods above.
 
 ## Project structure
 
@@ -165,20 +169,6 @@ See [protocol notes](docs/protocol.md) for session mapping, incoming header hand
 | --- | --- |
 | [`opencode-zen-spring-boot-starter`](opencode-zen-spring-boot-starter) | Dependency entry point for Spring Boot applications. |
 | [`opencode-zen-spring-boot-autoconfigure`](opencode-zen-spring-boot-autoconfigure) | Protocol policies, model parsing, SSE utilities, properties, and request factory. |
-
-## Development
-
-```bash
-git clone https://github.com/BangShou1st/opencode-zen.git
-cd opencode-zen
-./gradlew build
-```
-
-On Windows, run `.\gradlew.bat build`. The wrapper uses Gradle 8.9 and requires JDK 21. Gradle may download its distribution and dependencies; the library build makes no OpenCode Zen API calls.
-
-This repository currently contains no tests. GitHub Actions verifies the build. Published-artifact checks, Spring context integration, and optional live checks are maintained in a separate, unpublished `opencode-zen-consumer-app` project; a successful build alone does not establish upstream availability.
-
-For changes, keep both README files aligned, document behavior changes in [CHANGELOG.md](CHANGELOG.md), and include the verification performed in your pull request. Repository-specific development instructions are in [AGENTS.md](AGENTS.md).
 
 ## Acknowledgments
 

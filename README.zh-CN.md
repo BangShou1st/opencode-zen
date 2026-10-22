@@ -12,7 +12,7 @@
 
 [English](README.md) · **简体中文**
 
-[快速开始](#快速开始) · [使用说明](#使用说明) · [开发](#开发) · [协议说明](docs/protocol.md)
+[功能](#功能) · [快速开始](#快速开始) · [使用说明](#使用说明) · [许可证](#许可证)
 
 </div>
 
@@ -157,7 +157,11 @@ try (var body = response.body()) {
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` 可区分滥用拒绝、免费层拒绝、限流等错误；HTTP 403/429 不触发自动重试或出口切换。
 - 配置属性为 `opencode.zen.user-agent`，默认值来自内置客户端 Profile。凭据由应用管理。
 
-会话映射、入站请求头、旧式 Builder 及兼容性约束见 [协议说明](docs/protocol.md)。
+### 接入注意事项
+
+- 会话映射缓存在工厂实例内存中，不会跨重启持久化。
+- 接收 `incomingHeaders` 的推理重载仅选择性透传项目名、通过校验的会话及 Anthropic beta/version 请求头，不允许入站请求头覆盖凭据。
+- 旧式 `newConversationRequest` / `newEphemeralRequest` 仅返回带请求头的 Builder。用于推理时需自行调用 `OpenCodeZenProtocolPolicy.applyRequiredEnvelope`，或直接使用上面的完整推理方法。
 
 ## 项目结构
 
@@ -165,20 +169,6 @@ try (var body = response.body()) {
 | --- | --- |
 | [`opencode-zen-spring-boot-starter`](opencode-zen-spring-boot-starter) | Spring Boot 应用的依赖入口。 |
 | [`opencode-zen-spring-boot-autoconfigure`](opencode-zen-spring-boot-autoconfigure) | 协议策略、模型解析、SSE 工具、配置属性及请求工厂。 |
-
-## 开发
-
-```bash
-git clone https://github.com/BangShou1st/opencode-zen.git
-cd opencode-zen
-./gradlew build
-```
-
-Windows 使用 `.\gradlew.bat build`。Wrapper 使用 Gradle 8.9，需要 JDK 21。Gradle 可能下载发行版和依赖，但库的构建不会调用 OpenCode Zen API。
-
-本仓库目前不包含测试，GitHub Actions 验证构建。发布产物检查、Spring 上下文集成及可选的真实链路检查，位于独立且未公开发布的 `opencode-zen-consumer-app` 项目中；构建成功不能证明上游服务可用。
-
-修改时请同步两份 README，行为变更记入 [CHANGELOG.md](CHANGELOG.md)，并在 Pull Request 中说明验证结果。项目开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 致谢
 

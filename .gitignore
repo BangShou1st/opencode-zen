@@ -4,3 +4,6 @@ out/
 *.iml
 .idea/
 .vscode/
+
+AGENTS.md
+.local/
