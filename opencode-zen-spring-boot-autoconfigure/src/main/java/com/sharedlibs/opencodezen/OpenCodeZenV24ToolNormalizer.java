@@ -95,8 +95,13 @@ final class OpenCodeZenV24ToolNormalizer {
                     details = stringMap(function);
                     outer.put("function", details);
                 }
-                String wire = OpenCodeZenClientProfile.clientToolWireName(client, used);
-                renames.add(client, wire);
+                // A duplicate client name reuses its first wire name, so every
+                // reference to it points at the one tool that was sent.
+                String wire = renames.wire(client);
+                if (wire == null) {
+                    wire = OpenCodeZenClientProfile.clientToolWireName(client, used);
+                    renames.add(client, wire);
+                }
                 if (!wire.equals(client)) {
                     setToolName(outer, details, wire);
                 }

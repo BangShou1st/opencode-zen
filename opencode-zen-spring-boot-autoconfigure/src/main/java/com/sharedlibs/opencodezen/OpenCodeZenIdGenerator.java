@@ -71,14 +71,19 @@ public final class OpenCodeZenIdGenerator {
                 counterMillis = timestamp;
                 counter = 0;
             }
-            while (counter > 0xF) {
+            // The slots run 1..15, not 0..15: the JS and Python ports mint 1
+            // first, and the counter gate reads the range the tier accepts
+            // (1-63) — a slot of 0 exposes ~0 as the counter, which a freshly
+            // minted id must not carry.
+            while (counter >= 0xF) {
                 timestamp = System.currentTimeMillis();
                 if (timestamp != counterMillis) {
                     counterMillis = timestamp;
                     counter = 0;
                 }
             }
-            slot = counter++;
+            counter += 1;
+            slot = counter;
         }
 
         long current = timestamp * 0x1000L + slot;
