@@ -13,6 +13,6 @@ public class OpenCodeZenAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     OpenCodeZenRequestFactory openCodeZenRequestFactory(OpenCodeZenProperties properties) {
-        return new OpenCodeZenRequestFactory(properties.getUserAgent());
+        return new OpenCodeZenRequestFactory(properties.getUserAgent(), properties.isSessionAffinity());
     }
 }

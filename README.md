@@ -22,7 +22,7 @@ Build OpenCode Zen requests in Java with consistent headers, credentials, sessio
 
 - **Three inference formats** — request construction for Chat Completions, Responses, and Anthropic Messages.
 - **Spring Boot integration** — inject `OpenCodeZenRequestFactory`, or provide your own bean to override the default.
-- **Request compatibility** — a bundled OpenCode 2.x client profile, generated session/message identifiers, and protocol-specific tool normalization.
+- **Request compatibility** — a bundled OpenCode 2.1.4 client identity, the official 2.x system prompt and the complete official tool set (the application's tools leave under `clint_` names), a fresh session identifier per request (sticky per-conversation sessions behind `opencode.zen.session-affinity`), and a per-request project identifier.
 - **Model and credential policies** — catalog parsing, free-model admission rules, and public versus API-key authentication.
 - **Streaming utilities** — SSE frame decoding, JSON event reading, and upstream error classification.
 - **Explicit transport choices** — helpers for direct, JVM-configured, or HTTP proxy connections. No automatic retries or route switching on HTTP 403/429.
@@ -35,7 +35,7 @@ This project supplies request and protocol utilities. Credential storage, routin
 
 - Java 21 or later.
 - Spring Boot dependencies are built against **3.3.2**; other versions should be verified in your application.
-- Artifacts are distributed through **JitPack**. The documented version is **`v1.4.2`**, including the leading `v`.
+- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.0`**, including the leading `v`.
 
 ### Install
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.2")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.0")
 }
 ```
 
@@ -68,7 +68,7 @@ If your build centralizes repositories, add JitPack to `dependencyResolutionMana
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.4.2</version>
+        <version>v1.5.0</version>
     </dependency>
 </dependencies>
 ```
@@ -122,11 +122,11 @@ Pass an eligible free-model ID from the current catalog and admission policy. Re
 
 | Format | Protocol | Inference path |
 | --- | --- | --- |
-| Chat Completions | `ZenModelProtocol.CHAT` | `/chat/completions` |
-| Responses | `ZenModelProtocol.RESPONSES` | `/responses` |
-| Anthropic Messages | `ZenModelProtocol.ANTHROPIC` | `/messages` |
+| Chat Completions | `ZenModelProtocol.CHAT` | `/inference/openai/v1/chat/completions` |
+| Responses | `ZenModelProtocol.RESPONSES` | `/inference/openai/v1/responses` |
+| Anthropic Messages | `ZenModelProtocol.ANTHROPIC` | `/inference/anthropic/v1/messages?beta=true` |
 
-The bundled inference base URL is `https://opencode.ai/inference/v1`. Use `newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)` for an explicit endpoint and format, or `newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)` for a one-off call. The endpoint path must match the protocol.
+The 2.1 client groups its inference routes by provider family; `OpenCodeZenProtocolPolicy.inferenceEndpoint(protocol)` returns the grouped URL for the bundled base `https://opencode.ai/inference/v1`, and a custom base URL keeps the flat route. Use `newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)` for an explicit endpoint and format, or `newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)` for a one-off call. The endpoint path must match the protocol.
 
 ### Read SSE events
 
@@ -147,7 +147,7 @@ try (var body = response.body()) {
 }
 ```
 
-The reader handles SSE framing and JSON events. Your adapter must assemble protocol-specific output and filter tool calls. Added compatibility tools are declarations only and must never be executed. Only tools explicitly authorized by the caller may run.
+The reader handles SSE framing and JSON events. Your adapter must assemble protocol-specific output and filter tool calls. Tool calls in a reply name the `clint_` wire spelling; restore the names your application declared through the renames that `OpenCodeZenProtocolPolicy.shapeEnvelope` returns. The appended official tools are declarations only and must never be executed. Only tools explicitly authorized by the caller may run.
 
 ### Credentials, networking, and errors
 
@@ -155,11 +155,11 @@ The reader handles SSE framing and JSON events. Your adapter must assemble proto
 - `OpenCodeZenHttpClients.system()` uses the JVM proxy selector. It does not guarantee support for `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
 - Use `direct()` for a direct connection or `explicitHttpProxy(host, port)` for an explicit HTTP proxy.
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. HTTP 403/429 does not trigger automatic retries or route switching.
-- `opencode.zen.user-agent` is the library's configuration property; its default is the bundled client profile's User-Agent. Credentials remain application-owned.
+- `opencode.zen.user-agent` and `opencode.zen.session-affinity` (default `false`) are the library's configuration properties. With affinity off, every request leaves as its own session; with affinity on, one conversation key keeps one sticky session for the factory's lifetime. Credentials remain application-owned.
 
 ### Integration notes
 
-- Conversation sessions are cached in memory within the factory instance; the mapping does not persist across restarts.
+- With `session-affinity` enabled, conversation sessions are cached in memory within the factory instance; the mapping does not persist across restarts.
 - Inference overloads accepting `incomingHeaders` selectively forward project, validated session, and Anthropic beta/version headers. They do not allow incoming headers to override credentials.
 - Legacy `newConversationRequest` / `newEphemeralRequest` methods return header-bearing builders only. For inference, apply `OpenCodeZenProtocolPolicy.applyRequiredEnvelope` yourself or use the complete inference methods above.
 
@@ -172,7 +172,7 @@ The reader handles SSE framing and JSON events. Your adapter must assemble proto
 
 ## Acknowledgments
 
-The bundled client profile and compatibility work reference [OpenCode-Zen-FreeX v0.3.1](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.3.1). Source attribution and its MIT notice are retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The bundled client profile, official prompt and official tool set reference [OpenCode-Zen-FreeX v0.5.9](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.5.9). Source attribution and its MIT notice are retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 This is an independent Java integration, unaffiliated with the OpenCode project. Model availability, pricing, and access are controlled by the upstream service; using this package does not grant service access.
 

@@ -23,8 +23,16 @@ import java.util.concurrent.ConcurrentMap;
  * API key and a conversation key to {@link #newConversationRequest} (or
  * {@link #newEphemeralRequest} for one-off calls) receives a fully conforming request: shaped
  * {@code ses_}/{@code msg_} identifiers generated here, the CLI identity headers, the bearer
- * credential and — via {@link OpenCodeZenProtocolPolicy} — the tool envelope that the free tier
- * requires. Callers never need to know how the identifiers are shaped.
+ * credential and — via {@link OpenCodeZenProtocolPolicy} — the official prompt and the tool
+ * envelope that the free tier requires. Callers never need to know how the identifiers are
+ * shaped.
+ *
+ * <p><b>A request leaves as its own session.</b> The tier keeps what it thinks of traffic
+ * against the session — the burn a conversation leaves is charged where the tier files it,
+ * and a session that has been refused once is a session the next request answers for — so the
+ * session id is minted fresh on every call by default, and every request arrives as a session
+ * the tier has never seen. The conversation stickiness the factory used to keep is available
+ * through {@code sessionAffinity} for a host that wants the affinity a stable session carries.
  *
  * <p>Caller-supplied identifiers are validated fail-closed: an identifier that does not carry
  * the frozen client shape (for example a UUID) is rejected locally instead of being sent
@@ -40,11 +48,24 @@ public final class OpenCodeZenRequestFactory {
             java.util.regex.Pattern.compile("_session_([0-9A-Fa-f-]{36})$");
 
     private final String userAgent;
+    private final boolean sessionAffinity;
     private final ConcurrentMap<String, String> conversationSessions = new ConcurrentHashMap<>();
 
     public OpenCodeZenRequestFactory(String userAgent) {
+        this(userAgent, false);
+    }
+
+    /** @param sessionAffinity true keeps one sticky upstream session per conversation key;
+     *     false (the default) mints a fresh session id for every request. */
+    public OpenCodeZenRequestFactory(String userAgent, boolean sessionAffinity) {
         this.userAgent = Objects.requireNonNull(userAgent, "userAgent");
+        this.sessionAffinity = sessionAffinity;
         OpenCodeZenProtocolPolicy.validateUserAgent(userAgent);
+    }
+
+    /** True when this factory keeps one sticky upstream session per conversation. */
+    public boolean isSessionAffinity() {
+        return sessionAffinity;
     }
 
     /**
@@ -86,9 +107,10 @@ public final class OpenCodeZenRequestFactory {
     }
 
     /**
-     * One-stop builder for consumers that do not want to manage identifier shapes: the session
-     * identifier is generated here and cached per conversation, the request identifier is fresh
-     * for every call.
+     * One-stop builder for consumers that do not want to manage identifier shapes: the request
+     * identifier is fresh for every call, and the session identifier is fresh too unless this
+     * factory was built with {@code sessionAffinity} — then it is generated once and cached per
+     * conversation.
      */
     public HttpRequest.Builder newConversationRequest(
             URI endpoint, boolean freeModel, String apiKey, UUID conversationKey) {
@@ -142,12 +164,12 @@ public final class OpenCodeZenRequestFactory {
                 endpoint, protocol, payload, incomingHeaders);
     }
 
-    /** Convenience method for standard Chat Completions inference. */
+    /** Convenience method for standard Chat Completions inference, on the
+     * 2.1 client's family-grouped route. */
     public HttpRequest newConversationChatRequest(
             boolean freeModel, String apiKey, UUID conversationKey, Map<String, Object> payload) {
         return newConversationInferenceRequest(
-                URI.create(OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL
-                        + OpenCodeZenProtocolPolicy.CHAT_COMPLETIONS_PATH),
+                URI.create(OpenCodeZenProtocolPolicy.inferenceEndpoint(ZenModelProtocol.CHAT)),
                 ZenModelProtocol.CHAT, freeModel, apiKey, conversationKey, payload);
     }
 
@@ -171,9 +193,12 @@ public final class OpenCodeZenRequestFactory {
         if (!(copy.get("model") instanceof String model) || model.isBlank()) {
             throw new IllegalArgumentException("model must be a non-empty string");
         }
-        OpenCodeZenProtocolPolicy.applyRequiredEnvelope(copy, protocol, true);
+        OpenCodeZenProtocolPolicy.shapeEnvelope(copy, protocol, true);
         try {
-            byte[] bytes = JSON.writeValueAsBytes(copy);
+            // The v2 Chat lane leaves in the client's key order; every other
+            // lane keeps the body as it was built.
+            byte[] bytes = JSON.writeValueAsBytes(protocol == ZenModelProtocol.CHAT
+                    ? OpenCodeZenProtocolPolicy.orderedChatBody(copy) : copy);
             return builder.header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(180))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build();
@@ -189,16 +214,19 @@ public final class OpenCodeZenRequestFactory {
         if (project != null) {
             builder.setHeader("x-opencode-project", singleLine(project, "project"));
         }
-        // A session the caller states is taken verbatim when it is an id the
+        // Without session affinity, the request is its own session and the
+        // host's name for the conversation is not consulted: a fresh id per
+        // request arrives as a session the tier has never seen. With affinity,
+        // a session the caller states is taken verbatim when it is an id the
         // client could have minted (its counter gate passes); otherwise the
         // session this factory already generated for the conversation stands.
-        String session = header(incoming, "x-opencode-session");
-        if (session == null) session = header(incoming, "x-opencode-session-id");
-        if (session == null) session = header(incoming, "x-session-affinity");
-        if (session == null) session = header(incoming, "x-session-id");
-        if (session == null) session = header(incoming, "session_id");
-        if (session == null) session = header(incoming, "conversation-id");
-        if (session == null) session = header(incoming, "conversation_id");
+        String session = sessionAffinity ? header(incoming, "x-opencode-session") : null;
+        if (session == null && sessionAffinity) session = header(incoming, "x-opencode-session-id");
+        if (session == null && sessionAffinity) session = header(incoming, "x-session-affinity");
+        if (session == null && sessionAffinity) session = header(incoming, "x-session-id");
+        if (session == null && sessionAffinity) session = header(incoming, "session_id");
+        if (session == null && sessionAffinity) session = header(incoming, "conversation-id");
+        if (session == null && sessionAffinity) session = header(incoming, "conversation_id");
         if (session != null && OpenCodeZenIdGenerator.isV24SessionAffinityValid(session)) {
             builder.setHeader("x-opencode-session", session);
             builder.setHeader("x-opencode-session-id", session);
@@ -208,8 +236,8 @@ public final class OpenCodeZenRequestFactory {
         // minted, so it is remembered as the key of a session of our own
         // rather than sent as one: the same signal then answers the same
         // upstream session for the whole conversation, and two different
-        // signals never share one.
-        if (session == null) {
+        // signals never share one. (Affinity mode only.)
+        if (session == null && sessionAffinity) {
             String named = bodyConversationSignal(payload);
             if (named != null) {
                 String derived = sessionForSignal(named);
@@ -315,6 +343,12 @@ public final class OpenCodeZenRequestFactory {
     }
 
     private String sessionFor(UUID conversationKey) {
+        // A request leaves as its own session by default: the id is minted
+        // fresh on every call, whatever named the conversation. The affinity
+        // mode hands the conversation back to the sticky ladder.
+        if (!sessionAffinity) {
+            return OpenCodeZenIdGenerator.newSessionId();
+        }
         return sessionForSignal("uuid:" + conversationKey);
     }
 

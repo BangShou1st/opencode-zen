@@ -22,7 +22,7 @@
 
 - **三种推理格式**：构建 Chat Completions、Responses 和 Anthropic Messages 请求。
 - **Spring Boot 集成**：直接注入 `OpenCodeZenRequestFactory`，也可通过自定义 Bean 覆盖默认装配。
-- **请求兼容处理**：内置 OpenCode 2.x 客户端 Profile，生成会话与消息标识，按协议归一化工具声明。
+- **请求兼容处理**：内置 OpenCode 2.1.4 客户端身份、官方 2.x 系统提示词与完整官方工具集（调用方工具以 `clint_` 前缀改名发出），每个请求使用全新会话标识（可通过 `opencode.zen.session-affinity` 开启对话级粘性会话），并按请求生成项目标识。
 - **模型与凭据策略**：解析模型目录，提供免费模型准入规则，处理公开凭据与 API Key 认证。
 - **流式处理工具**：SSE 帧解码、JSON 事件读取及上游错误分类。
 - **显式选择网络连接**：提供直连、JVM 默认代理和 HTTP 代理辅助方法；HTTP 403/429 不自动重试或切换出口。
@@ -35,7 +35,7 @@
 
 - Java 21 或更高版本。
 - Spring Boot 依赖基于 **3.3.2** 构建；其他版本请在接入应用中验证。
-- 通过 **JitPack** 分发，当前文档版本为 **`v1.4.2`**，版本号包含前缀 `v`。
+- 通过 **JitPack** 分发，当前文档版本为 **`v1.5.0`**，版本号包含前缀 `v`。
 
 ### 安装
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.4.2")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.0")
 }
 ```
 
@@ -68,7 +68,7 @@ dependencies {
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.4.2</version>
+        <version>v1.5.0</version>
     </dependency>
 </dependencies>
 ```
@@ -122,11 +122,11 @@ public class ZenChatService {
 
 | 格式 | 协议枚举 | 推理路径 |
 | --- | --- | --- |
-| Chat Completions | `ZenModelProtocol.CHAT` | `/chat/completions` |
-| Responses | `ZenModelProtocol.RESPONSES` | `/responses` |
-| Anthropic Messages | `ZenModelProtocol.ANTHROPIC` | `/messages` |
+| Chat Completions | `ZenModelProtocol.CHAT` | `/inference/openai/v1/chat/completions` |
+| Responses | `ZenModelProtocol.RESPONSES` | `/inference/openai/v1/responses` |
+| Anthropic Messages | `ZenModelProtocol.ANTHROPIC` | `/inference/anthropic/v1/messages?beta=true` |
 
-内置推理 Base URL 为 `https://opencode.ai/inference/v1`。指定端点和格式时，使用 `newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)`；一次性请求使用 `newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)`。端点路径必须与协议匹配。
+2.1 客户端按提供方协议族分组推理路由；`OpenCodeZenProtocolPolicy.inferenceEndpoint(protocol)` 返回内置 Base URL `https://opencode.ai/inference/v1` 对应的分组地址，自定义 Base URL 保持扁平路由。指定端点和格式时，使用 `newConversationInferenceRequest(endpoint, protocol, freeModel, apiKey, conversationId, payload)`；一次性请求使用 `newEphemeralInferenceRequest(endpoint, protocol, freeModel, apiKey, payload)`。端点路径必须与协议匹配。
 
 ### 读取 SSE 事件
 
@@ -147,7 +147,7 @@ try (var body = response.body()) {
 }
 ```
 
-读取器负责 SSE 分帧和 JSON 事件解析，协议输出拼装与工具调用过滤由接入应用完成。自动追加的兼容工具仅用于声明，不得执行；只有调用方明确授权的工具才可运行。
+读取器负责 SSE 分帧和 JSON 事件解析，协议输出拼装与工具调用过滤由接入应用完成。回复中的工具调用使用 `clint_` 线上名称，可通过 `OpenCodeZenProtocolPolicy.shapeEnvelope` 返回的改名映射还原为应用声明的名称。自动追加的官方工具仅用于声明，不得执行；只有调用方明确授权的工具才可运行。
 
 ### 凭据、网络与错误
 
@@ -155,11 +155,11 @@ try (var body = response.body()) {
 - `OpenCodeZenHttpClients.system()` 使用 JVM 的代理选择器，不保证自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
 - `direct()` 显式直连，`explicitHttpProxy(host, port)` 显式指定 HTTP 代理。
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` 可区分滥用拒绝、免费层拒绝、限流等错误；HTTP 403/429 不触发自动重试或出口切换。
-- 配置属性为 `opencode.zen.user-agent`，默认值来自内置客户端 Profile。凭据由应用管理。
+- 配置属性为 `opencode.zen.user-agent` 与 `opencode.zen.session-affinity`（默认 `false`）。关闭粘性时每个请求使用全新会话；开启后同一对话键在工厂生命周期内保持同一会话。凭据由应用管理。
 
 ### 接入注意事项
 
-- 会话映射缓存在工厂实例内存中，不会跨重启持久化。
+- 开启 `session-affinity` 后，会话映射缓存在工厂实例内存中，不会跨重启持久化。
 - 接收 `incomingHeaders` 的推理重载仅选择性透传项目名、通过校验的会话及 Anthropic beta/version 请求头，不允许入站请求头覆盖凭据。
 - 旧式 `newConversationRequest` / `newEphemeralRequest` 仅返回带请求头的 Builder。用于推理时需自行调用 `OpenCodeZenProtocolPolicy.applyRequiredEnvelope`，或直接使用上面的完整推理方法。
 
@@ -172,7 +172,7 @@ try (var body = response.body()) {
 
 ## 致谢
 
-内置客户端 Profile 和兼容性实现参考 [OpenCode-Zen-FreeX v0.3.1](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.3.1)。来源与上游 MIT 声明保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+内置客户端身份、官方提示词与官方工具集参考 [OpenCode-Zen-FreeX v0.5.9](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.5.9)。来源与上游 MIT 声明保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 本项目是独立的 Java 接入项目，与 OpenCode 项目无隶属关系。模型可用性、价格和访问权限由上游服务决定，使用本项目不等于获得服务访问授权。
 

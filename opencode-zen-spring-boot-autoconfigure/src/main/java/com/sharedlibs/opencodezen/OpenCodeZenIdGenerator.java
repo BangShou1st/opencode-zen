@@ -32,16 +32,24 @@ public final class OpenCodeZenIdGenerator {
     }
 
     /**
-     * Python V2.4 also validates the three trailing timestamp/counter hex digits
-     * for an inbound x-opencode-session. Do not treat a regex-only match as an
+     * Also validates the three trailing timestamp/counter hex digits for an
+     * inbound x-opencode-session. Do not treat a regex-only match as an
      * existing authenticated session. New sessions created here already pass.
+     *
+     * <p>The counter range is 1-63, not the 1-15 this used to read. Probing the
+     * live endpoint on 2026-10-25 found counters 1-63 accepted and everything
+     * beyond rejected with 403 FreeTierError even when the ses_ shape was
+     * right. The ids this generator mints stay inside 1-15, so widening the
+     * read only lets a genuine client id through; it does not make a malformed
+     * one pass.
      */
     public static boolean isV24SessionAffinityValid(String sessionId) {
         if (!isSessionShaped(sessionId)) {
             return false;
         }
         int counterHex = Integer.parseInt(sessionId.substring(13, 16), 16);
-        return 0xFFF - counterHex < 16;
+        int counter = 0xFFF - counterHex;
+        return counter >= 1 && counter <= 63;
     }
 
     /** Creates a descending session id; callers should cache it for a conversation. */

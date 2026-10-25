@@ -2,10 +2,14 @@
 
 ## OpenCode-Zen-FreeX
 
-The bundled `zen-client-profile.json` is sourced from
-[`fingerprint.json` at v0.3.1](https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/v0.3.1/fingerprint.json),
-commit `8b5b975`, captured on 2026-10-21. Protocol compatibility work also
-references this project. Its MIT notice is reproduced below.
+The bundled `zen-client-profile.json`, `official-tools.json` and
+`opencode-prompt-v2.txt` are sourced from
+[OpenCode-Zen-FreeX at v0.5.9](https://github.com/tkhs101/OpenCode-Zen-FreeX/tree/v0.5.9)
+(`fingerprint.json`, `official-tools.json`, `opencode-prompt-v2.txt`), commit
+`f4f0af5`, captured on 2026-10-26; the prompt and the tool definitions are
+OpenCode's own (MIT), captured verbatim by that project. Protocol
+compatibility work also references this project. Its MIT notice is reproduced
+below.
 
 ```text
 MIT License
