@@ -35,7 +35,7 @@ This project supplies request and protocol utilities. Credential storage, routin
 
 - Java 21 or later.
 - Spring Boot dependencies are built against **3.3.2**; other versions should be verified in your application.
-- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.0`**, including the leading `v`.
+- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.1`**, including the leading `v`.
 
 ### Install
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.0")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.1")
 }
 ```
 
@@ -68,7 +68,7 @@ If your build centralizes repositories, add JitPack to `dependencyResolutionMana
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.5.0</version>
+        <version>v1.5.1</version>
     </dependency>
 </dependencies>
 ```
