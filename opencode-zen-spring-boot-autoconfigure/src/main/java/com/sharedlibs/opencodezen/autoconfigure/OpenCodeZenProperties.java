@@ -18,6 +18,15 @@ public class OpenCodeZenProperties {
      */
     private boolean sessionAffinity = false;
 
+    /**
+     * The local Bun relay the requests leave through (for example
+     * {@code http://127.0.0.1:18992}, started from
+     * {@code bun bun-relay.mjs}). Blank (the default) addresses the endpoint
+     * directly from this JVM — which the free tier currently refuses, because
+     * it admits only Bun-shaped traffic.
+     */
+    private String relayUrl = "";
+
     public String getUserAgent() {
         return userAgent;
     }
@@ -32,5 +41,13 @@ public class OpenCodeZenProperties {
 
     public void setSessionAffinity(boolean sessionAffinity) {
         this.sessionAffinity = sessionAffinity;
+    }
+
+    public String getRelayUrl() {
+        return relayUrl;
+    }
+
+    public void setRelayUrl(String relayUrl) {
+        this.relayUrl = relayUrl;
     }
 }

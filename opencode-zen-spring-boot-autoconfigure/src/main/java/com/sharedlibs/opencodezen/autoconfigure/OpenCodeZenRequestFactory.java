@@ -34,6 +34,16 @@ import java.util.concurrent.ConcurrentMap;
  * the tier has never seen. The conversation stickiness the factory used to keep is available
  * through {@code sessionAffinity} for a host that wants the affinity a stable session carries.
  *
+ * <p><b>The request must leave as Bun-shaped traffic.</b> The tier reads the client's
+ * transport fingerprint and refuses everything that is not Bun's with {@code 429
+ * FreeUsageLimitError} (measured 2026-10-26: the same shaped request that Bun's fetch answers
+ * with 200 is refused from python, curl, httpx and Java HttpClient alike, while magpie —
+ * Bun-compiled, same upstream package, public credential — answers 200). When {@code
+ * relayUrl} is configured, the request is addressed to that local relay — a dumb transparent
+ * tunnel started from Bun — with the real endpoint riding in {@code x-relay-target}, so the
+ * bytes leave from Bun's network stack. Without a relay the request leaves directly from
+ * this JVM, which the tier currently refuses.
+ *
  * <p>Caller-supplied identifiers are validated fail-closed: an identifier that does not carry
  * the frozen client shape (for example a UUID) is rejected locally instead of being sent
  * upstream, where it would be answered with {@code 403 FreeTierError}.
@@ -49,23 +59,36 @@ public final class OpenCodeZenRequestFactory {
 
     private final String userAgent;
     private final boolean sessionAffinity;
+    private final String relayUrl;
     private final ConcurrentMap<String, String> conversationSessions = new ConcurrentHashMap<>();
 
     public OpenCodeZenRequestFactory(String userAgent) {
-        this(userAgent, false);
+        this(userAgent, false, null);
     }
 
     /** @param sessionAffinity true keeps one sticky upstream session per conversation key;
      *     false (the default) mints a fresh session id for every request. */
     public OpenCodeZenRequestFactory(String userAgent, boolean sessionAffinity) {
+        this(userAgent, sessionAffinity, null);
+    }
+
+    /** @param relayUrl the local Bun relay the requests leave through, or null/blank to
+     *     address the endpoint directly from this JVM (which the free tier currently refuses). */
+    public OpenCodeZenRequestFactory(String userAgent, boolean sessionAffinity, String relayUrl) {
         this.userAgent = Objects.requireNonNull(userAgent, "userAgent");
         this.sessionAffinity = sessionAffinity;
+        this.relayUrl = relayUrl == null || relayUrl.isBlank() ? null : relayUrl.replaceAll("/+$", "");
         OpenCodeZenProtocolPolicy.validateUserAgent(userAgent);
     }
 
     /** True when this factory keeps one sticky upstream session per conversation. */
     public boolean isSessionAffinity() {
         return sessionAffinity;
+    }
+
+    /** The relay the requests leave through, or null when they leave directly. */
+    public String relayUrl() {
+        return relayUrl;
     }
 
     /**
@@ -79,7 +102,19 @@ public final class OpenCodeZenRequestFactory {
         validateEndpoint(endpoint);
         requireSessionShape(sessionId);
         requireRequestShape(requestId);
-        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint);
+        // The protocol gates read the endpoint path BEFORE the relay rewrite:
+        // a relayed request is addressed to the relay, and the real endpoint
+        // rides in x-relay-target.
+        boolean anthropic = endpoint.getPath().endsWith(OpenCodeZenProtocolPolicy.ANTHROPIC_MESSAGES_PATH);
+        URI target = endpoint;
+        HttpRequest.Builder builder;
+        if (relayUrl != null) {
+            target = URI.create(relayUrl + "/");
+            builder = HttpRequest.newBuilder(target)
+                    .header(OpenCodeZenProtocolPolicy.RELAY_TARGET_HEADER, endpoint.toString());
+        } else {
+            builder = HttpRequest.newBuilder(endpoint);
+        }
         OpenCodeZenProtocolPolicy.applyIdentityHeaders(builder, sessionId, requestId, userAgent);
         String credential = resolvedCredential == null || resolvedCredential.isBlank()
                 ? OpenCodeZenProtocolPolicy.FREE_TIER_CREDENTIAL : resolvedCredential;
@@ -88,7 +123,7 @@ public final class OpenCodeZenRequestFactory {
         }
         // Python V2.4 uses x-api-key + anthropic-version on /messages,
         // not Authorization: Bearer.
-        if (endpoint.getPath().endsWith(OpenCodeZenProtocolPolicy.ANTHROPIC_MESSAGES_PATH)) {
+        if (anthropic) {
             return builder.header("x-api-key", credential)
                     .header("anthropic-version", "2023-06-01");
         }

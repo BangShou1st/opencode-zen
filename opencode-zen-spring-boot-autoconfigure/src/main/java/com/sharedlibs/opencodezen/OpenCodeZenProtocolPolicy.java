@@ -62,6 +62,10 @@ public final class OpenCodeZenProtocolPolicy {
     public static final String GLOBAL_PROJECT = "global";
     public static final String FREE_TIER_CREDENTIAL = "public";
 
+    /** The header that names the real endpoint when a request leaves through
+     * the local Bun relay. */
+    public static final String RELAY_TARGET_HEADER = "x-relay-target";
+
     /** The CLI sends this accept header; keep it for byte-level parity. */
     public static final String ACCEPT_VALUE = "*/*";
 

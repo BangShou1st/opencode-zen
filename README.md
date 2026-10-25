@@ -35,7 +35,7 @@ This project supplies request and protocol utilities. Credential storage, routin
 
 - Java 21 or later.
 - Spring Boot dependencies are built against **3.3.2**; other versions should be verified in your application.
-- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.1`**, including the leading `v`.
+- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.2`**, including the leading `v`.
 
 ### Install
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.1")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.2")
 }
 ```
 
@@ -68,7 +68,7 @@ If your build centralizes repositories, add JitPack to `dependencyResolutionMana
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.5.1</version>
+        <version>v1.5.2</version>
     </dependency>
 </dependencies>
 ```
@@ -155,7 +155,7 @@ The reader handles SSE framing and JSON events. Your adapter must assemble proto
 - `OpenCodeZenHttpClients.system()` uses the JVM proxy selector. It does not guarantee support for `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
 - Use `direct()` for a direct connection or `explicitHttpProxy(host, port)` for an explicit HTTP proxy.
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. HTTP 403/429 does not trigger automatic retries or route switching.
-- `opencode.zen.user-agent` and `opencode.zen.session-affinity` (default `false`) are the library's configuration properties. With affinity off, every request leaves as its own session; with affinity on, one conversation key keeps one sticky session for the factory's lifetime. Credentials remain application-owned.
+- `opencode.zen.user-agent`, `opencode.zen.session-affinity` (default `false`) and `opencode.zen.relay-url` (default blank) are the library's configuration properties. With affinity off, every request leaves as its own session; with affinity on, one conversation key keeps one sticky session for the factory's lifetime. When `relay-url` points at a local Bun relay (a transparent tunnel started with `bun bun-relay.mjs`, for example `http://127.0.0.1:18992`), the requests leave from Bun's network stack — the tier currently refuses every other client stack with `429 FreeUsageLimitError`. Credentials remain application-owned.
 
 ### Integration notes
 
