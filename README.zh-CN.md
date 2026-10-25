@@ -35,7 +35,7 @@
 
 - Java 21 或更高版本。
 - Spring Boot 依赖基于 **3.3.2** 构建；其他版本请在接入应用中验证。
-- 通过 **JitPack** 分发，当前文档版本为 **`v1.5.2`**，版本号包含前缀 `v`。
+- 通过 **JitPack** 分发，当前文档版本为 **`v1.5.4`**，版本号包含前缀 `v`。
 
 ### 安装
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.2")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.4")
 }
 ```
 
@@ -68,7 +68,7 @@ dependencies {
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.5.2</version>
+        <version>v1.5.4</version>
     </dependency>
 </dependencies>
 ```
@@ -155,7 +155,7 @@ try (var body = response.body()) {
 - `OpenCodeZenHttpClients.system()` 使用 JVM 的代理选择器，不保证自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
 - `direct()` 显式直连，`explicitHttpProxy(host, port)` 显式指定 HTTP 代理。
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` 可区分滥用拒绝、免费层拒绝、限流等错误；HTTP 403/429 不触发自动重试或出口切换。
-- 配置属性为 `opencode.zen.user-agent`、`opencode.zen.session-affinity`（默认 `false`）与 `opencode.zen.relay-url`（默认空）。关闭粘性时每个请求使用全新会话；开启后同一对话键在工厂生命周期内保持同一会话。`relay-url` 指向本地 Bun 转发隧道（`bun bun-relay.mjs` 启动，例如 `http://127.0.0.1:18992`）时，请求从 Bun 的网络栈发出——免费档目前会以 `429 FreeUsageLimitError` 拒绝其它一切客户端栈。凭据由应用管理。
+- 配置属性为 `opencode.zen.user-agent`、`opencode.zen.session-affinity`（默认 `false`）与 `opencode.zen.relay-url`（默认空）。关闭粘性时每个请求使用全新会话；开启后同一对话键在工厂生命周期内保持同一会话。`relay-url` 默认 `auto`、无需配置：本机已有 Bun 转发隧道时直接使用，否则库自行启动内置的隧道脚本——优先用本机 Bun，没有 Bun 时**自动下载一次**（固定版本 + SHA-256 校验，按用户缓存，约 55MB），此后完全离线。只有离线且无 Bun 的机器才回退 JVM 直连——免费档目前会以 `429 FreeUsageLimitError` 拒绝其它一切客户端栈。`relay-url` 也可显式指定隧道地址或 `none`。凭据由应用管理。
 
 ### 接入注意事项
 
