@@ -19,11 +19,13 @@ public class OpenCodeZenProperties {
     private boolean sessionAffinity = false;
 
     /**
-     * The local Bun relay the requests leave through (for example
-     * {@code http://127.0.0.1:18992}, started from
-     * {@code bun bun-relay.mjs}). Blank (the default) addresses the endpoint
-     * directly from this JVM — which the free tier currently refuses, because
-     * it admits only Bun-shaped traffic.
+     * How the requests leave for the upstream. Blank or {@code auto} (the
+     * default): an already-running local Bun relay wins, then the bundled
+     * relay script is started with the local Bun, then — with no Bun — the
+     * requests leave directly from this JVM, which the free tier currently
+     * refuses (it admits only Bun-shaped traffic). {@code none}/{@code
+     * direct}/{@code off} always go direct; anything else is an explicit
+     * relay URL (for example {@code http://127.0.0.1:18992}).
      */
     private String relayUrl = "";
 
