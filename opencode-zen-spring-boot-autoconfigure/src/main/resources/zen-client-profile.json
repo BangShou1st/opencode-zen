@@ -1,7 +1,7 @@
 {
-  "source": "https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/v0.5.9/fingerprint.json",
-  "source_commit": "f4f0af5",
-  "snapshot_date": "2026-10-26",
+  "source": "https://github.com/tkhs101/OpenCode-Zen-FreeX/blob/v0.5.11/fingerprint.json",
+  "source_commit": "b6e828e",
+  "snapshot_date": "2026-10-27",
   "generation": "2.x",
   "agent": {
     "channel": "latest",
