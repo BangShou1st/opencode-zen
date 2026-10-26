@@ -25,7 +25,7 @@ Build OpenCode Zen requests in Java with consistent headers, credentials, sessio
 - **Request compatibility** — a bundled OpenCode 2.1.4 client identity, the official 2.x system prompt and the complete official tool set (the application's tools leave under `clint_` names), a fresh session identifier per request (sticky per-conversation sessions behind `opencode.zen.session-affinity`), and a per-request project identifier.
 - **Model and credential policies** — catalog parsing, free-model admission rules, and public versus API-key authentication.
 - **Streaming utilities** — SSE frame decoding, JSON event reading, and upstream error classification.
-- **Explicit transport choices** — helpers for direct, JVM-configured, or HTTP proxy connections. No automatic retries or route switching on HTTP 403/429.
+- **Explicit transport choices** — helpers for direct, JVM-configured, or HTTP proxy connections. No automatic route switching; retrying is opt-out through `OpenCodeZenRetryPolicy` (a rate-limited 429 asks again under a fresh ledger; nothing else is retried).
 
 This project supplies request and protocol utilities. Credential storage, routing, budgets, tool execution, and application workflows belong to the consuming application.
 
@@ -35,7 +35,7 @@ This project supplies request and protocol utilities. Credential storage, routin
 
 - Java 21 or later.
 - Spring Boot dependencies are built against **3.3.2**; other versions should be verified in your application.
-- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.4`**, including the leading `v`.
+- Artifacts are distributed through **JitPack**. The documented version is **`v1.5.5`**, including the leading `v`.
 
 ### Install
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.4")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.5")
 }
 ```
 
@@ -68,7 +68,7 @@ If your build centralizes repositories, add JitPack to `dependencyResolutionMana
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.5.4</version>
+        <version>v1.5.5</version>
     </dependency>
 </dependencies>
 ```
@@ -154,7 +154,8 @@ The reader handles SSE framing and JSON events. Your adapter must assemble proto
 - Free-model requests use the `public` credential; paid models require an API key. The caller supplies the free/paid decision using the model policies.
 - `OpenCodeZenHttpClients.system()` uses the JVM proxy selector. It does not guarantee support for `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
 - Use `direct()` for a direct connection or `explicitHttpProxy(host, port)` for an explicit HTTP proxy.
-- `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. HTTP 403/429 does not trigger automatic retries or route switching.
+- `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` distinguishes abuse rejection, free-tier rejection, rate limiting, and other failures. A 429 whose body carries the IP-abuse wording is a block, not a rate limit, and is never retried.
+- `OpenCodeZenRetryPolicy` carries the retry decision and its knobs (aligned with upstream OpenCode-Zen-FreeX v0.5.10/v0.5.11): the tier ledgers its free quota per project id and egress together, so a rate-limited 429 is worth asking again under a fresh ledger, and so is a request that never got an answer (`looksLikeTransportFailure`). The count defaults to 2 (`OPENCODE_ZEN_FREE_RETRY_429=0` turns it off, 5 is the ceiling) and the first wait is 1200 ms, doubled per attempt, capped at 5 s (`OPENCODE_ZEN_FREE_RETRY_WAIT_MS` overrides). The loop belongs to the caller: rebuild the request through the same factory method — every call mints fresh session, request and project identifiers, which is the fresh ledger — and hand the failure of the last attempt on unchanged when the retries are spent.
 - `opencode.zen.user-agent`, `opencode.zen.session-affinity` (default `false`) and `opencode.zen.relay-url` (default blank) are the library's configuration properties. With affinity off, every request leaves as its own session; with affinity on, one conversation key keeps one sticky session for the factory's lifetime. The default `auto` needs no configuration: an already-running local Bun relay wins, then the library starts the bundled relay script itself — with the local Bun, or, when none is installed, with a Bun runtime it downloads once (pinned release, SHA-256 verified, cached per user). From the second run on, everything is offline. Only an offline machine without Bun goes direct, which the tier refuses with `429 FreeUsageLimitError`; `relay-url` also accepts an explicit relay address or `none`. Credentials remain application-owned.
 
 ### Integration notes
