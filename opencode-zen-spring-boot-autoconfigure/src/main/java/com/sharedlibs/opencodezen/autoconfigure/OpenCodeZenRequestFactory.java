@@ -2,6 +2,7 @@ package com.sharedlibs.opencodezen.autoconfigure;
 
 import com.sharedlibs.opencodezen.OpenCodeZenCredentialPolicy;
 import com.sharedlibs.opencodezen.OpenCodeZenIdGenerator;
+import com.sharedlibs.opencodezen.OpenCodeZenIdentityWindow;
 import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
 import com.sharedlibs.opencodezen.ZenModelProtocol;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,12 +28,16 @@ import java.util.concurrent.ConcurrentMap;
  * envelope that the free tier requires. Callers never need to know how the identifiers are
  * shaped.
  *
- * <p><b>A request leaves as its own session.</b> The tier keeps what it thinks of traffic
- * against the session — the burn a conversation leaves is charged where the tier files it,
- * and a session that has been refused once is a session the next request answers for — so the
- * session id is minted fresh on every call by default, and every request arrives as a session
- * the tier has never seen. The conversation stickiness the factory used to keep is available
- * through {@code sessionAffinity} for a host that wants the affinity a stable session carries.
+ * <p><b>One identity pair per conversation, held for a window.</b> The tier ledgers its free
+ * quota per project id and egress together, and it files what it thinks of a conversation
+ * against the session — so the factory hands one (session, project) pair per conversation, held
+ * for the window {@link OpenCodeZenIdentityWindow#identityTtl() identityTtl} sets (60 seconds by
+ * default; {@code OPENCODE_ZEN_FREE_IDENTITY_TTL_MS=0} restores the per-request minting this
+ * library shipped with). A retry is the tier saying this pair's bucket is spent: {@link
+ * #newConversationRetryRequest newConversationRetryRequest} replaces the pair wholesale, and the
+ * pair that just answered is the one the conversation holds afterwards. The conversation
+ * stickiness the factory used to keep is available through {@code sessionAffinity} for a host
+ * that wants the affinity a stable session carries.
  *
  * <p><b>The request must leave as Bun-shaped traffic.</b> The tier reads the client's
  * transport fingerprint and refuses everything that is not Bun's with {@code 429
@@ -61,6 +66,7 @@ public final class OpenCodeZenRequestFactory {
     private final boolean sessionAffinity;
     private final String relayUrl;
     private final ConcurrentMap<String, String> conversationSessions = new ConcurrentHashMap<>();
+    private final OpenCodeZenIdentityWindow identityWindow = new OpenCodeZenIdentityWindow();
 
     public OpenCodeZenRequestFactory(String userAgent) {
         this(userAgent, false, null);
@@ -99,6 +105,15 @@ public final class OpenCodeZenRequestFactory {
      */
     public HttpRequest.Builder newRequestBuilder(
             URI endpoint, String resolvedCredential, String sessionId, String requestId) {
+        return newRequestBuilder(endpoint, resolvedCredential, sessionId, requestId,
+                OpenCodeZenProtocolPolicy.randomProjectId());
+    }
+
+    /** The same builder with an explicit project id: the window's pair, or a
+     * host-named id riding in through the incoming headers. */
+    public HttpRequest.Builder newRequestBuilder(
+            URI endpoint, String resolvedCredential, String sessionId, String requestId,
+            String projectId) {
         validateEndpoint(endpoint);
         requireSessionShape(sessionId);
         requireRequestShape(requestId);
@@ -115,7 +130,7 @@ public final class OpenCodeZenRequestFactory {
         } else {
             builder = HttpRequest.newBuilder(endpoint);
         }
-        OpenCodeZenProtocolPolicy.applyIdentityHeaders(builder, sessionId, requestId, userAgent);
+        OpenCodeZenProtocolPolicy.applyIdentityHeaders(builder, sessionId, requestId, userAgent, projectId);
         String credential = resolvedCredential == null || resolvedCredential.isBlank()
                 ? OpenCodeZenProtocolPolicy.FREE_TIER_CREDENTIAL : resolvedCredential;
         if (credential.indexOf('\n') >= 0 || credential.indexOf('\r') >= 0) {
@@ -143,24 +158,51 @@ public final class OpenCodeZenRequestFactory {
 
     /**
      * One-stop builder for consumers that do not want to manage identifier shapes: the request
-     * identifier is fresh for every call, and the session identifier is fresh too unless this
-     * factory was built with {@code sessionAffinity} — then it is generated once and cached per
-     * conversation.
+     * identifier is fresh for every call, and the (session, project) identity pair is the one
+     * this conversation's window holds — a fresh pair once the window is over. Under
+     * {@code sessionAffinity} the session comes from the sticky ladder and the project id is
+     * minted per request.
      */
     public HttpRequest.Builder newConversationRequest(
             URI endpoint, boolean freeModel, String apiKey, UUID conversationKey) {
         Objects.requireNonNull(conversationKey, "conversationKey");
+        OpenCodeZenIdentityWindow.Pair pair = sessionAffinity
+                ? null
+                : identityWindow.current("uuid:" + conversationKey, System.currentTimeMillis());
+        String session = pair != null ? pair.session() : sessionFor(conversationKey);
+        String project = pair != null ? pair.project() : OpenCodeZenProtocolPolicy.randomProjectId();
         return newRequestBuilder(endpoint,
                 OpenCodeZenCredentialPolicy.credentialForModel(freeModel, apiKey),
-                sessionFor(conversationKey), OpenCodeZenIdGenerator.newRequestId());
+                session, OpenCodeZenIdGenerator.newRequestId(), project);
     }
 
-    /** One-stop builder for a one-off request (credential probe, model discovery). */
-    public HttpRequest.Builder newEphemeralRequest(
-            URI endpoint, boolean freeModel, String apiKey) {
+    /**
+     * The retry's builder: the pair the tier ledgers against is replaced wholesale — the session
+     * and the project id minted in one instant — and the pair that just answered is the one this
+     * conversation's window holds afterwards, whatever {@code sessionAffinity} says about the
+     * session it keeps. Build the retry through this method rather than through {@link
+     * #newConversationRequest newConversationRequest}, whose window would hand back the spent
+     * pair while it is still young.
+     */
+    public HttpRequest.Builder newConversationRetryRequest(
+            URI endpoint, boolean freeModel, String apiKey, UUID conversationKey) {
+        Objects.requireNonNull(conversationKey, "conversationKey");
+        OpenCodeZenIdentityWindow.Pair fresh = identityWindow.rotate(
+                "uuid:" + conversationKey, System.currentTimeMillis());
         return newRequestBuilder(endpoint,
                 OpenCodeZenCredentialPolicy.credentialForModel(freeModel, apiKey),
-                OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId());
+                fresh.session(), OpenCodeZenIdGenerator.newRequestId(), fresh.project());
+    }
+
+    /** One-stop builder for a one-off request (credential probe, model discovery). A request
+     * that names no conversation shares the unnamed slot — the single pair this library used
+     * before the window existed — for the window identityTtl sets. */
+    public HttpRequest.Builder newEphemeralRequest(
+            URI endpoint, boolean freeModel, String apiKey) {
+        OpenCodeZenIdentityWindow.Pair pair = identityWindow.current(null, System.currentTimeMillis());
+        return newRequestBuilder(endpoint,
+                OpenCodeZenCredentialPolicy.credentialForModel(freeModel, apiKey),
+                pair.session(), OpenCodeZenIdGenerator.newRequestId(), pair.project());
     }
 
     /**
@@ -172,6 +214,15 @@ public final class OpenCodeZenRequestFactory {
             URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
             UUID conversationKey, Map<String, Object> payload) {
         return postWithEnvelope(newConversationRequest(
+                endpoint, freeModel, apiKey, conversationKey), endpoint, protocol, payload);
+    }
+
+    /** The retry's inference POST: the pair is replaced wholesale before the
+     * request is built (see {@link #newConversationRetryRequest}). */
+    public HttpRequest newConversationRetryInferenceRequest(
+            URI endpoint, ZenModelProtocol protocol, boolean freeModel, String apiKey,
+            UUID conversationKey, Map<String, Object> payload) {
+        return postWithEnvelope(newConversationRetryRequest(
                 endpoint, freeModel, apiKey, conversationKey), endpoint, protocol, payload);
     }
 
@@ -378,12 +429,8 @@ public final class OpenCodeZenRequestFactory {
     }
 
     private String sessionFor(UUID conversationKey) {
-        // A request leaves as its own session by default: the id is minted
-        // fresh on every call, whatever named the conversation. The affinity
-        // mode hands the conversation back to the sticky ladder.
-        if (!sessionAffinity) {
-            return OpenCodeZenIdGenerator.newSessionId();
-        }
+        // The affinity mode hands the conversation back to the sticky ladder;
+        // without it the identity window owns the pair and this is not called.
         return sessionForSignal("uuid:" + conversationKey);
     }
 

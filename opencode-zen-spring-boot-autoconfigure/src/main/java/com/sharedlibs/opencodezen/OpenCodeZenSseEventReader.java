@@ -117,7 +117,8 @@ public final class OpenCodeZenSseEventReader {
                 } else if (startsWith(bytes, length, "event:")) {
                     eventName[0] = new String(bytes, 6, length - 6, StandardCharsets.UTF_8).trim();
                 } else {
-                    throw new StreamFailure("truncated_sse", "Upstream SSE ended mid-line");
+                    throw new StreamFailure("truncated_sse",
+                            "Upstream SSE stream ended before an event was complete");
                 }
             }
         }
@@ -151,7 +152,9 @@ public final class OpenCodeZenSseEventReader {
             } catch (IOException error) {
                 throw new StreamFailure(
                         endOfStream ? "truncated_sse" : "bad_sse",
-                        "Invalid upstream SSE event JSON", error);
+                        endOfStream
+                                ? "Upstream SSE stream ended before an event was complete"
+                                : "Invalid upstream SSE event JSON", error);
             }
         }
         String name = eventName[0];

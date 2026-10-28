@@ -56,7 +56,8 @@ public final class OpenCodeZenProtocolPolicy {
     /** A project id in the shape the CLI sends — the working directory's git
      * commit hash, 40 hex. The tier's free quota is ledged per project id and
      * egress together, and nothing is known to read the id beyond its shape, so
-     * a host that does not name its project gets one of its own per request:
+     * a host that does not name its project gets one of its own, held for the
+     * window {@link OpenCodeZenIdentityWindow#identityTtl() identityTtl} sets:
      * a ledger no other traffic shares, wherever the request lands. The old
      * shared {@code global} bucket on popular exits arrived pre-burned. */
     public static final String GLOBAL_PROJECT = "global";

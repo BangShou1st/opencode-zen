@@ -22,7 +22,7 @@
 
 - **三种推理格式**：构建 Chat Completions、Responses 和 Anthropic Messages 请求。
 - **Spring Boot 集成**：直接注入 `OpenCodeZenRequestFactory`，也可通过自定义 Bean 覆盖默认装配。
-- **请求兼容处理**：内置 OpenCode 2.1.4 客户端身份、官方 2.x 系统提示词与完整官方工具集（调用方工具以 `clint_` 前缀改名发出），每个请求使用全新会话标识（可通过 `opencode.zen.session-affinity` 开启对话级粘性会话），并按请求生成项目标识。
+- **请求兼容处理**：内置 OpenCode 2.2.0 客户端身份、官方 2.x 系统提示词与完整官方工具集（调用方工具以 `clint_` 前缀改名发出），每个对话持有一对（会话， 项目）身份并保留一段窗口（可通过 `opencode.zen.session-affinity` 开启对话级粘性会话），请求标识按请求生成。
 - **模型与凭据策略**：解析模型目录，提供免费模型准入规则，处理公开凭据与 API Key 认证。
 - **流式处理工具**：SSE 帧解码、JSON 事件读取及上游错误分类。
 - **显式选择网络连接**：提供直连、JVM 默认代理和 HTTP 代理辅助方法；不自动切换出口。重试默认开启且可通过 `OpenCodeZenRetryPolicy` 关闭（被限流的 429 换新配额账本重问，其余一律不重试）。
@@ -35,7 +35,7 @@
 
 - Java 21 或更高版本。
 - Spring Boot 依赖基于 **3.3.2** 构建；其他版本请在接入应用中验证。
-- 通过 **JitPack** 分发，当前文档版本为 **`v1.5.5`**，版本号包含前缀 `v`。
+- 通过 **JitPack** 分发，当前文档版本为 **`v1.6.0`**，版本号包含前缀 `v`。
 
 ### 安装
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.5.5")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.6.0")
 }
 ```
 
@@ -68,7 +68,7 @@ dependencies {
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.5.5</version>
+        <version>v1.6.0</version>
     </dependency>
 </dependencies>
 ```
@@ -155,12 +155,12 @@ try (var body = response.body()) {
 - `OpenCodeZenHttpClients.system()` 使用 JVM 的代理选择器，不保证自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
 - `direct()` 显式直连，`explicitHttpProxy(host, port)` 显式指定 HTTP 代理。
 - `OpenCodeZenUpstreamDiagnostics.classify(statusCode, bodyBytes)` 可区分滥用拒绝、免费层拒绝、限流等错误；响应体带出口 IP 滥用措辞的 429 属封锁而非限流，永不重试。
-- `OpenCodeZenRetryPolicy` 承载重试判定与参数（对齐上游 OpenCode-Zen-FreeX v0.5.10/v0.5.11）：免费配额按 project id 与出口联合记账，被限流的 429 值得换新账本再问一次；从未得到响应的连接失败（`looksLikeTransportFailure`）同样值得再问。重试次数默认 2（`OPENCODE_ZEN_FREE_RETRY_429=0` 关闭，上限 5），首等 1200ms、逐次翻倍、上限 5s（`OPENCODE_ZEN_FREE_RETRY_WAIT_MS` 覆盖）。发送循环属于调用方：用同一个工厂方法重建请求——每次调用都会生成全新的会话/请求/项目标识，这就是新账本——重试耗尽后把最后一次的失败原样交给调用方。
-- 配置属性为 `opencode.zen.user-agent`、`opencode.zen.session-affinity`（默认 `false`）与 `opencode.zen.relay-url`（默认空）。关闭粘性时每个请求使用全新会话；开启后同一对话键在工厂生命周期内保持同一会话。`relay-url` 默认 `auto`、无需配置：本机已有 Bun 转发隧道时直接使用，否则库自行启动内置的隧道脚本——优先用本机 Bun，没有 Bun 时**自动下载一次**（固定版本 + SHA-256 校验，按用户缓存，约 55MB），此后完全离线。只有离线且无 Bun 的机器才回退 JVM 直连——免费档目前会以 `429 FreeUsageLimitError` 拒绝其它一切客户端栈。`relay-url` 也可显式指定隧道地址或 `none`。凭据由应用管理。
+- `OpenCodeZenRetryPolicy` 承载重试判定与参数（对齐上游 OpenCode-Zen-FreeX）：免费配额按 project id 与出口联合记账，被限流的 429 值得换新账本再问一次；从未得到响应的连接失败（`looksLikeTransportFailure`）同样值得再问。重试次数默认 2（`OPENCODE_ZEN_FREE_RETRY_429=0` 关闭，上限 5），首等 1200ms、逐次翻倍、默认上限 5s（`OPENCODE_ZEN_FREE_RETRY_WAIT_MS` 覆盖首等，`OPENCODE_ZEN_FREE_RETRY_WAIT_MAX_MS` 可把封顶提到至多 120s，`OPENCODE_ZEN_FREE_RETRY_AFTER=1` 让 429 自带的 retry-after 决定那一次等待）。`OPENCODE_ZEN_FREE_PACING_MS` 可给同一通道的连续请求设最小间隔，供出现过突发拒绝的部署使用。发送循环属于调用方：首次请求走 `newConversationInferenceRequest`，重试走 `newConversationRetryInferenceRequest`——重试会整体替换（会话， 项目）身份对——重试耗尽后把最后一次的失败原样交给调用方。
+- 配置属性为 `opencode.zen.user-agent`、`opencode.zen.session-affinity`（默认 `false`）与 `opencode.zen.relay-url`（默认空）。关闭粘性时，同一对话持有一对身份并保留一段窗口（`OPENCODE_ZEN_FREE_IDENTITY_TTL_MS`，默认 60s；`0` 恢复逐请求现铸）——身份在短时间内连跳会被整批拒绝，同样请求隔约半秒即通过；开启后同一对话键在工厂生命周期内保持同一会话。`relay-url` 默认 `auto`、无需配置：本机已有 Bun 转发隧道时直接使用，否则库自行启动内置的隧道脚本——优先用本机 Bun，没有 Bun 时**自动下载一次**（固定版本 + SHA-256 校验，按用户缓存，约 55MB），此后完全离线。只有离线且无 Bun 的机器才回退 JVM 直连——免费档目前会以 `429 FreeUsageLimitError` 拒绝其它一切客户端栈。`relay-url` 也可显式指定隧道地址或 `none`。凭据由应用管理。
 
 ### 接入注意事项
 
-- 开启 `session-affinity` 后，会话映射缓存在工厂实例内存中，不会跨重启持久化。
+- 身份窗口与开启 `session-affinity` 后的会话映射都缓存在工厂实例内存中，不会跨重启持久化。
 - 接收 `incomingHeaders` 的推理重载仅选择性透传项目名、通过校验的会话及 Anthropic beta/version 请求头，不允许入站请求头覆盖凭据。
 - 旧式 `newConversationRequest` / `newEphemeralRequest` 仅返回带请求头的 Builder。用于推理时需自行调用 `OpenCodeZenProtocolPolicy.applyRequiredEnvelope`，或直接使用上面的完整推理方法。
 
