@@ -35,7 +35,7 @@
 
 - Java 21 或更高版本。
 - Spring Boot 依赖基于 **3.3.2** 构建；其他版本请在接入应用中验证。
-- 通过 **JitPack** 分发，当前文档版本为 **`v1.6.0`**，版本号包含前缀 `v`。
+- 通过 **JitPack** 分发，当前文档版本为 **`v1.6.1`**，版本号包含前缀 `v`。
 
 ### 安装
 
@@ -48,7 +48,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.6.0")
+    implementation("com.github.BangShou1st.opencode-zen:opencode-zen-spring-boot-starter:v1.6.1")
 }
 ```
 
@@ -68,7 +68,7 @@ dependencies {
     <dependency>
         <groupId>com.github.BangShou1st.opencode-zen</groupId>
         <artifactId>opencode-zen-spring-boot-starter</artifactId>
-        <version>v1.6.0</version>
+        <version>v1.6.1</version>
     </dependency>
 </dependencies>
 ```

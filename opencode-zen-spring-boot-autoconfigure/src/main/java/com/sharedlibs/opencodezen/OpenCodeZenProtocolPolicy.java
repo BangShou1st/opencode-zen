@@ -39,7 +39,7 @@ public final class OpenCodeZenProtocolPolicy {
     public static final String DEFAULT_BASE_URL = INFERENCE_BASE_URL;
 
     public static final String USER_AGENT =
-            "opencode/latest/2.1.4/cli";
+            OpenCodeZenClientProfile.userAgent();
 
     public static final String MODELS_PATH = "/models";
     public static final String CHAT_COMPLETIONS_PATH = "/chat/completions";

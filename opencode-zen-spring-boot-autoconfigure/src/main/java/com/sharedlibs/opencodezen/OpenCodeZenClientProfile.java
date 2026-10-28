@@ -92,6 +92,17 @@ public final class OpenCodeZenClientProfile {
         return PROFILE.path("agent").path("opencode").asText();
     }
 
+    /** The User-Agent the pinned identity presents, composed from the capture:
+     * the release shape is {@code opencode/<channel>/<opencode>/<client>}. It is
+     * derived here rather than spelled beside the capture so the capture file is
+     * the one place the identity can drift from. */
+    public static String userAgent() {
+        JsonNode agent = PROFILE.path("agent");
+        return "opencode/" + agent.path("channel").asText()
+                + "/" + agent.path("opencode").asText()
+                + "/" + agent.path("client").asText();
+    }
+
     /** All named tools from the captured identity profile, preserving source order. */
     public static java.util.Set<String> pinnedToolNames() {
         java.util.Set<String> names = new java.util.LinkedHashSet<>();
@@ -116,7 +127,7 @@ public final class OpenCodeZenClientProfile {
         return List.copyOf(names);
     }
 
-    /** The 2.1.4 prompt capture, with placeholders for the model it names, the
+    /** The 2.2.0 prompt capture, with placeholders for the model it names, the
      * UTC date above the environment block, and the environment block itself. */
     public static String officialPromptV2() {
         return OFFICIAL_PROMPT_V2;
@@ -232,9 +243,9 @@ public final class OpenCodeZenClientProfile {
         }
         String description = node.path("description").asText();
         if (isWindows() && "shell".equals(name)) {
-            // The 2.1.4 desktop client words its own shell after bash on both
-            // platforms, so only the platform name moves (captured 2026-10-25
-            // from the 2.1.4 desktop CLI).
+            // The desktop client words its own shell after bash on both
+            // platforms, so only the platform name moves (captured 2026-10-28
+            // from the 2.2.0 desktop CLI).
             description = description.replace("on Linux using bash", "on Windows using bash");
         }
         Map<String, Object> schema = MAPPER.convertValue(
