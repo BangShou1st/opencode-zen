@@ -17,7 +17,7 @@ val repo = System.getenv("ARTIFACT")?.takeIf { it.isNotBlank() } ?: "opencode-ze
 // already carries it.
 group = if (owner.endsWith(".$repo")) owner else "$owner.$repo"
 
-version = System.getenv("VERSION")?.takeIf { it.isNotBlank() } ?: "v1.5.5"
+version = System.getenv("VERSION")?.takeIf { it.isNotBlank() } ?: "v1.6.0"
 
 subprojects {
     group = rootProject.group
